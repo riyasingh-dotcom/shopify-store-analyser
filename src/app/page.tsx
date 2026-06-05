@@ -1,5 +1,7 @@
 import { getStoreData } from '@/services/shopify';
 import { analyseStore } from '@/app/actions/analyse';
+import { SidebarProvider } from '@/components/SidebarContext';
+import MobileMenuButton from '@/components/MobileMenuButton';
 import Sidebar from '@/components/Sidebar';
 import StoreStats from '@/components/StoreStats';
 import ProductsTable from '@/components/ProductsTable';
@@ -36,8 +38,8 @@ function ErrorView({ message }: { message: string }) {
 
 function MockBanner() {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-      <svg className="h-4 w-4 shrink-0 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:items-center">
+      <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-500 sm:mt-0" viewBox="0 0 20 20" fill="currentColor">
         <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
       </svg>
       <span>
@@ -53,8 +55,8 @@ function MockBanner() {
 
 function AnalysisMissingBanner() {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-      <svg className="h-4 w-4 shrink-0 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+    <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 sm:items-center">
+      <svg className="mt-0.5 h-4 w-4 shrink-0 text-gray-400 sm:mt-0" viewBox="0 0 20 20" fill="currentColor">
         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
       </svg>
       <span>
@@ -69,16 +71,21 @@ function AnalysisMissingBanner() {
 
 function TopBar({ data }: { data: StoreData }) {
   return (
-    <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-white/90 px-6 backdrop-blur-sm">
-      <div>
-        <h1 className="text-base font-bold text-gray-900">Overview</h1>
-        <p className="text-xs text-gray-400">{data.shop.myshopifyDomain}</p>
-      </div>
+    <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-white/90 px-4 backdrop-blur-sm sm:px-6">
       <div className="flex items-center gap-3">
+        {/* Hamburger — visible on mobile only, client component */}
+        <MobileMenuButton />
+        <div>
+          <h1 className="text-base font-bold text-gray-900">Overview</h1>
+          <p className="hidden text-xs text-gray-400 sm:block">{data.shop.myshopifyDomain}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 sm:gap-3">
         <span className="hidden text-xs text-gray-400 sm:block">{data.shop.currencyCode}</span>
-        <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${data.isMockData ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-700'}`}>
+        <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium sm:px-3 ${data.isMockData ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-700'}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${data.isMockData ? 'bg-amber-400' : 'bg-emerald-500'}`} />
-          {data.isMockData ? 'Demo mode' : 'Live data'}
+          {data.isMockData ? 'Demo' : 'Live'}
+          <span className="hidden sm:inline">{data.isMockData ? ' mode' : ' data'}</span>
         </div>
       </div>
     </header>
@@ -88,9 +95,8 @@ function TopBar({ data }: { data: StoreData }) {
 // ── AI insights section ───────────────────────────────────────────────────────
 
 function AIInsightsSection({ analysis }: { analysis: StoreAnalysis }) {
-  // Sort insights: high → medium → low
+  const order = { high: 0, medium: 1, low: 2 } as const;
   const sorted = [...analysis.insights].sort((a, b) => {
-    const order = { high: 0, medium: 1, low: 2 } as const;
     const ap = (order as Record<string, number>)[a.priority] ?? 1;
     const bp = (order as Record<string, number>)[b.priority] ?? 1;
     return ap - bp;
@@ -122,7 +128,7 @@ function AIInsightsSection({ analysis }: { analysis: StoreAnalysis }) {
       </div>
 
       {/* Insight cards grid */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {sorted.map((insight, i) => (
           <InsightCard key={i} insight={insight} />
         ))}
@@ -142,7 +148,6 @@ export default async function DashboardPage() {
     return <ErrorView message={err instanceof Error ? err.message : 'Unknown error'} />;
   }
 
-  // Run AI analysis — failures are non-fatal; dashboard still loads normally
   let analysis: StoreAnalysis | null = null;
   try {
     analysis = await analyseStore(data);
@@ -151,43 +156,46 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
-      <Sidebar shop={data.shop} isMockData={data.isMockData} />
+    <SidebarProvider>
+      <div className="flex min-h-screen bg-gray-100">
+        <Sidebar shop={data.shop} isMockData={data.isMockData} />
 
-      <div className="flex flex-1 flex-col lg:ml-64">
-        <TopBar data={data} />
+        {/* Main content — offset right of sidebar on lg+ */}
+        <div className="flex min-w-0 flex-1 flex-col lg:ml-64">
+          <TopBar data={data} />
 
-        <main className="flex-1 space-y-6 p-6">
-          {data.isMockData && <MockBanner />}
+          <main className="flex-1 space-y-4 p-4 sm:space-y-6 sm:p-6">
+            {data.isMockData && <MockBanner />}
 
-          {/* KPI cards */}
-          <StoreStats data={data} />
+            {/* KPI cards */}
+            <StoreStats data={data} />
 
-          {/* AI analysis — or nudge banner if key is missing */}
-          {analysis ? (
-            <AIInsightsSection analysis={analysis} />
-          ) : (
-            <AnalysisMissingBanner />
-          )}
+            {/* AI analysis — or nudge banner if key is missing */}
+            {analysis ? (
+              <AIInsightsSection analysis={analysis} />
+            ) : (
+              <AnalysisMissingBanner />
+            )}
 
-          {/* Products table + Order summary side panel */}
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <div className="xl:col-span-2">
-              <ProductsTable products={data.products} />
+            {/* Products table + Order summary side panel */}
+            <div className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-3">
+              <div className="xl:col-span-2">
+                <ProductsTable products={data.products} />
+              </div>
+              <div>
+                <OrderSummary orders={data.orders} />
+              </div>
             </div>
-            <div>
-              <OrderSummary orders={data.orders} />
-            </div>
-          </div>
 
-          {/* Orders table */}
-          <OrdersTable orders={data.orders} />
-        </main>
+            {/* Orders table */}
+            <OrdersTable orders={data.orders} />
+          </main>
 
-        <footer className="border-t border-gray-200 bg-white px-6 py-3 text-xs text-gray-400">
-          Shopify Store Analyser · {data.isMockData ? 'Mock data' : `Live · ${data.shop.name}`}
-        </footer>
+          <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6">
+            Shopify Store Analyser · {data.isMockData ? 'Mock data' : `Live · ${data.shop.name}`}
+          </footer>
+        </div>
       </div>
-    </div>
+    </SidebarProvider>
   );
 }

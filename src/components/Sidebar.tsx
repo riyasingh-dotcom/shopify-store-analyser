@@ -1,4 +1,7 @@
+'use client';
+
 import type { ShopInfo } from '@/types/shopify';
+import { useSidebar } from './SidebarContext';
 
 // ── inline SVG icons ──────────────────────────────────────────────────────────
 
@@ -77,6 +80,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ shop, isMockData }: SidebarProps) {
+  const { isOpen, close } = useSidebar();
+
   const initials = shop.name
     .split(' ')
     .map((w) => w[0])
@@ -85,46 +90,70 @@ export default function Sidebar({ shop, isMockData }: SidebarProps) {
     .toUpperCase();
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-white border-r border-gray-200">
-      {/* Logo */}
-      <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#96bf48]">
-          <svg viewBox="0 0 24 24" fill="white" className="h-5 w-5">
-            <path d="M15.337 6.94a.5.5 0 00-.464-.31h-1.39l-.52-2.81A2.5 2.5 0 0010.5 2h-.01a2.5 2.5 0 00-2.452 1.82L7.517 6.63H6.127a.5.5 0 00-.496.435l-1 8.5A.5.5 0 005.127 16h13.746a.5.5 0 00.496-.565l-1-8.5a.5.5 0 00-.032-.085zM10.49 3.5c.69 0 1.29.477 1.45 1.148l.42 1.982H8.64l.398-1.97A1 1 0 0110.49 3.5z" />
-          </svg>
-        </div>
-        <div>
-          <p className="text-sm font-bold text-gray-900">Store Analyser</p>
-          <p className="text-xs text-gray-400">Analytics Dashboard</p>
-        </div>
-      </div>
+    <>
+      {/* Mobile backdrop */}
+      <div
+        aria-hidden="true"
+        onClick={close}
+        className={`fixed inset-0 z-20 bg-black/40 backdrop-blur-sm transition-opacity duration-300 lg:hidden ${
+          isOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+      />
 
-      {/* Nav */}
-      <nav className="flex-1 space-y-0.5 px-3 py-5">
-        <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Main</p>
-        <NavItem icon={<HomeIcon />} label="Overview" active />
-        <NavItem icon={<CubeIcon />} label="Products" />
-        <NavItem icon={<BagIcon />}  label="Orders" />
-        <p className="mb-2 mt-5 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">More</p>
-        <NavItem icon={<ChartIcon />} label="Analytics" disabled />
-        <NavItem icon={<CogIcon />}   label="Settings"  disabled />
-      </nav>
+      {/* Sidebar panel */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-gray-200 bg-white transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        {/* Logo row */}
+        <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#96bf48]">
+            <svg viewBox="0 0 24 24" fill="white" className="h-5 w-5">
+              <path d="M15.337 6.94a.5.5 0 00-.464-.31h-1.39l-.52-2.81A2.5 2.5 0 0010.5 2h-.01a2.5 2.5 0 00-2.452 1.82L7.517 6.63H6.127a.5.5 0 00-.496.435l-1 8.5A.5.5 0 005.127 16h13.746a.5.5 0 00.496-.565l-1-8.5a.5.5 0 00-.032-.085zM10.49 3.5c.69 0 1.29.477 1.45 1.148l.42 1.982H8.64l.398-1.97A1 1 0 0110.49 3.5z" />
+            </svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-gray-900">Store Analyser</p>
+            <p className="text-xs text-gray-400">Analytics Dashboard</p>
+          </div>
+          {/* Close button — mobile only */}
+          <button
+            onClick={close}
+            aria-label="Close sidebar"
+            className="flex items-center justify-center rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 lg:hidden"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
-      {/* Store info footer */}
-      <div className="border-t border-gray-200 bg-gray-50 p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
-            {initials}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-900">{shop.name}</p>
-            <p className="truncate text-xs text-gray-500">{shop.plan.displayName}</p>
-          </div>
-          <div className="ml-auto">
-            <span className={`block h-2 w-2 rounded-full ${isMockData ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+        {/* Nav */}
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-5">
+          <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Main</p>
+          <NavItem icon={<HomeIcon />} label="Overview" active />
+          <NavItem icon={<CubeIcon />} label="Products" />
+          <NavItem icon={<BagIcon />}  label="Orders" />
+          <p className="mb-2 mt-5 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">More</p>
+          <NavItem icon={<ChartIcon />} label="Analytics" disabled />
+          <NavItem icon={<CogIcon />}   label="Settings"  disabled />
+        </nav>
+
+        {/* Store info footer */}
+        <div className="border-t border-gray-200 bg-gray-50 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
+              {initials}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-gray-900">{shop.name}</p>
+              <p className="truncate text-xs text-gray-500">{shop.plan.displayName}</p>
+            </div>
+            <span className={`block h-2 w-2 shrink-0 rounded-full ${isMockData ? 'bg-amber-400' : 'bg-emerald-400'}`} />
           </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }

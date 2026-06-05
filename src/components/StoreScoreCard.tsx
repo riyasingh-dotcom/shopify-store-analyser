@@ -62,7 +62,7 @@ export default function StoreScoreCard({ analysis }: StoreScoreCardProps) {
       {/* Accent bar */}
       <div className={`absolute inset-x-0 top-0 h-0.5 ${colors.bar}`} />
 
-      <div className="flex items-start gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
         {/* Circular score dial */}
         <div className="relative shrink-0">
           <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">
@@ -121,7 +121,7 @@ export default function StoreScoreCard({ analysis }: StoreScoreCardProps) {
       </div>
 
       {/* Scale legend */}
-      <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
+      <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-100 pt-4 sm:justify-between sm:gap-0">
         {[
           { range: '1–3', label: 'Critical', color: 'bg-red-400' },
           { range: '4–5', label: 'Needs Work', color: 'bg-amber-400' },
