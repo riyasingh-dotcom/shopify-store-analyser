@@ -75,3 +75,40 @@ export interface DashboardData {
   orders: Order[];
   isMockData: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Analytics / metrics types
+// ---------------------------------------------------------------------------
+
+export interface TopProduct {
+  id: string;
+  title: string;
+  vendor: string;
+  totalInventory: number;
+  minPrice: number;
+  maxPrice: number;
+  currencyCode: string;
+}
+
+export interface StoreMetrics {
+  totalRevenue: number;
+  averageOrderValue: number;
+  totalProducts: number;
+  activeProducts: number;
+  draftProducts: number;
+  archivedProducts: number;
+  totalOrders: number;
+  paidOrders: number;
+  lowStockProducts: number;
+  currencyCode: string;
+  topProducts: TopProduct[];
+}
+
+// Full store data shape — superset of DashboardData with computed metrics
+export interface StoreData {
+  shop: ShopInfo;
+  products: Product[];
+  orders: Order[];
+  metrics: StoreMetrics;
+  isMockData: boolean;
+}
