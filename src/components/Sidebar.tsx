@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import type { ShopInfo } from '@/types/shopify';
 import { useSidebar } from './SidebarContext';
 
@@ -47,11 +49,13 @@ function CogIcon() {
 interface NavItemProps {
   icon: React.ReactNode;
   label: string;
+  href?: string;
   active?: boolean;
   disabled?: boolean;
+  onClick?: () => void;
 }
 
-function NavItem({ icon, label, active, disabled }: NavItemProps) {
+function NavItem({ icon, label, href, active, disabled, onClick }: NavItemProps) {
   const base = 'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors';
   const style = disabled
     ? `${base} text-gray-400 cursor-not-allowed`
@@ -59,8 +63,8 @@ function NavItem({ icon, label, active, disabled }: NavItemProps) {
     ? `${base} bg-indigo-50 text-indigo-700`
     : `${base} text-gray-600 hover:bg-gray-100 hover:text-gray-900`;
 
-  return (
-    <div className={style}>
+  const content = (
+    <>
       {icon}
       <span>{label}</span>
       {disabled && (
@@ -68,8 +72,17 @@ function NavItem({ icon, label, active, disabled }: NavItemProps) {
           Soon
         </span>
       )}
-    </div>
+    </>
   );
+
+  if (href && !disabled) {
+    return (
+      <Link href={href} className={style} onClick={onClick}>
+        {content}
+      </Link>
+    );
+  }
+  return <div className={style}>{content}</div>;
 }
 
 // ── sidebar ───────────────────────────────────────────────────────────────────
@@ -81,6 +94,7 @@ interface SidebarProps {
 
 export default function Sidebar({ shop, isMockData }: SidebarProps) {
   const { isOpen, close } = useSidebar();
+  const pathname = usePathname();
 
   const initials = shop.name
     .split(' ')
@@ -132,9 +146,27 @@ export default function Sidebar({ shop, isMockData }: SidebarProps) {
         {/* Nav */}
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-5">
           <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Main</p>
-          <NavItem icon={<HomeIcon />} label="Overview" active />
-          <NavItem icon={<CubeIcon />} label="Products" />
-          <NavItem icon={<BagIcon />}  label="Orders" />
+          <NavItem
+            href="/"
+            icon={<HomeIcon />}
+            label="Overview"
+            active={pathname === '/'}
+            onClick={close}
+          />
+          <NavItem
+            href="/products"
+            icon={<CubeIcon />}
+            label="Products"
+            active={pathname.startsWith('/products')}
+            onClick={close}
+          />
+          <NavItem
+            href="/orders"
+            icon={<BagIcon />}
+            label="Orders"
+            active={pathname.startsWith('/orders')}
+            onClick={close}
+          />
           <p className="mb-2 mt-5 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">More</p>
           <NavItem icon={<ChartIcon />} label="Analytics" disabled />
           <NavItem icon={<CogIcon />}   label="Settings"  disabled />

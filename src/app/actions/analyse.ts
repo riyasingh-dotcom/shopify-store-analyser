@@ -1,6 +1,7 @@
 'use server';
 
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
+import { getStoreData } from '@/services/shopify';
 import type { StoreData } from '@/types/shopify';
 import type { StoreAnalysis } from '@/types/analysis';
 
@@ -8,32 +9,11 @@ import type { StoreAnalysis } from '@/types/analysis';
 // System prompt
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are an expert Shopify growth consultant with 10+ years specializing in SMB e-commerce optimization. You advise small-to-medium Shopify stores on inventory management, pricing strategy, product catalog quality, conversion rate optimization, and revenue growth.
+const SYSTEM_PROMPT = `You are a Shopify growth consultant for SMB stores. Analyse the store metrics and return JSON only — no markdown, no fences.
 
-Analyse the provided store metrics and return ONLY a raw JSON object — no markdown, no code fences, no explanations before or after. The response must be parseable directly with JSON.parse().
+Schema: {"overallScore":1-10,"summary":"2 sentences","insights":[{"category":"inventory|revenue|products|marketing|operations|growth","title":"max 6 words","finding":"data-backed observation","recommendation":"actionable next step","priority":"high|medium|low"}],"quickWins":["action completable this week"]}
 
-Required JSON structure:
-{
-
-
-  "overallScore": <integer 1–10, holistic store health>,
-  "summary": "<2–3 sentence executive summary covering store health and the single highest-priority area to address>",
-  "insights": [
-    {
-      "category": "<one of: inventory | revenue | products | marketing | operations | growth>",
-      "title": "<concise title, max 8 words>",
-      "finding": "<specific observation grounded in the provided numbers>",
-      "recommendation": "<concrete, actionable recommendation with measurable next steps>",
-      "priority": "<high | medium | low>"
-    }
-  ],
-  "quickWins": [
-    "<specific action the store owner can complete within one week>"
-  ]
-}
-
-Scoring guide: 1–3 = critical issues, 4–5 = needs significant work, 6–7 = performing adequately, 8–9 = strong store, 10 = exceptional.
-Rules: provide 4–6 insights ordered high → medium → low priority; provide 3–5 quick wins; base every insight strictly on the supplied data.`;
+Rules: 3-4 insights (high→low priority), 3 quick wins, base everything on the supplied numbers. Score: 1-3 critical, 4-5 needs work, 6-7 adequate, 8-10 strong.`;
 
 // ---------------------------------------------------------------------------
 // Input shape sent to Claude (subset of StoreData, serialisation-safe)
@@ -97,20 +77,30 @@ function buildStoreSummary(storeData: StoreData): StoreSummary {
 }
 
 // ---------------------------------------------------------------------------
-// JSON extraction — strips markdown code fences if Claude wraps anyway
+// JSON extraction — strips fences and cleans JS-style syntax that Gemini
+// occasionally emits even when responseMimeType is set to application/json.
 // ---------------------------------------------------------------------------
 
 function extractJson(raw: string): string {
-  // Strip ```json ... ``` or ``` ... ``` fences
+  // 1. Strip ```json ... ``` or ``` ... ``` fences
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch?.[1]) return fenceMatch[1].trim();
+  let candidate = fenceMatch?.[1]?.trim() ?? '';
 
-  // Fallback: find the outermost { ... } block
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start !== -1 && end > start) return raw.slice(start, end + 1);
+  if (!candidate) {
+    // 2. Find the outermost { ... } block
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    candidate = start !== -1 && end > start ? raw.slice(start, end + 1) : raw.trim();
+  }
 
-  return raw.trim();
+  // 3. Strip JS-style line comments  ("// ...")
+  candidate = candidate.replace(/\/\/[^\n\r]*/g, '');
+  // 4. Strip JS-style block comments ("/* ... */")
+  candidate = candidate.replace(/\/\*[\s\S]*?\*\//g, '');
+  // 5. Remove trailing commas before } or ]  (common in Gemini output)
+  candidate = candidate.replace(/,(\s*[}\]])/g, '$1');
+
+  return candidate;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,41 +128,45 @@ function isValidAnalysis(value: unknown): value is StoreAnalysis {
 // ---------------------------------------------------------------------------
 
 export async function analyseStore(storeData: StoreData): Promise<StoreAnalysis | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // ── provider boundary — swap here to switch back to Anthropic ──────────────
+  const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    console.warn('[analyseStore] ANTHROPIC_API_KEY is not set — skipping AI analysis');
+    console.warn('[analyseStore] GROQ_API_KEY is not set — skipping AI analysis');
     return null;
   }
 
+  const client = new OpenAI({
+    baseURL: 'https://api.groq.com/openai/v1',
+    apiKey,
+  });
+
   const summary = buildStoreSummary(storeData);
-  const client = new Anthropic({ apiKey });
 
   let rawText: string;
 
   try {
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1500,
-      system: SYSTEM_PROMPT,
+    const response = await client.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
       messages: [
-        {
-          role: 'user',
-          content: `Analyse this Shopify store and return your assessment as JSON:\n\n${JSON.stringify(summary, null, 2)}`,
-        },
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: `Analyse this store:\n${JSON.stringify(summary)}` },
       ],
+      max_tokens: 1024,
+      response_format: { type: 'json_object' },
     });
 
-    const block = response.content[0];
-    if (block.type !== 'text') {
-      console.error('[analyseStore] Unexpected content block type:', block.type);
+    rawText = response.choices[0]?.message?.content ?? '';
+
+    if (!rawText) {
+      console.error('[analyseStore] Groq returned an empty response');
       return null;
     }
-    rawText = block.text;
   } catch (err) {
-    console.error('[analyseStore] Anthropic API request failed:', err);
+    console.error('[analyseStore] Groq API request failed:', err);
     return null;
   }
+  // ── end provider boundary ───────────────────────────────────────────────────
 
   try {
     const jsonStr = extractJson(rawText);
@@ -193,4 +187,11 @@ export async function analyseStore(storeData: StoreData): Promise<StoreAnalysis 
     console.error('[analyseStore] Raw response was:', rawText);
     return null;
   }
+}
+
+// No-argument wrapper called from the client component.
+// Fetches store data server-side so nothing large travels client→server.
+export async function analyseCurrentStore(): Promise<StoreAnalysis | null> {
+  const storeData = await getStoreData();
+  return analyseStore(storeData);
 }
