@@ -1,15 +1,14 @@
 import OpenAI from 'openai';
 import { getStoreData } from '@/services/shopify';
+import { prisma } from '@/lib/prisma';
 import type { StoreData } from '@/types/shopify';
 
 export const dynamic = 'force-dynamic';
 
 // ---------------------------------------------------------------------------
-// Prompt — identical schema to the server action so results are consistent
+// Prompt
 // ---------------------------------------------------------------------------
 
-// NDJSON format: one self-contained JSON object per line.
-// Each line is parseable the moment it arrives, enabling progressive UI rendering.
 const SYSTEM_PROMPT = `You are a Shopify growth consultant for SMB stores.
 Output NDJSON — exactly one JSON object per line, no markdown, no fences, no extra text.
 
@@ -23,7 +22,11 @@ priority: high|medium|low — output 3-4 insights ordered high→low
 Score: 1-3 critical, 4-5 needs work, 6-7 adequate, 8-10 strong.
 Base every observation on the supplied numbers only.`;
 
-function buildPayload(storeData: StoreData): string {
+// ---------------------------------------------------------------------------
+// Payload builder — returns object so it can be stored directly in DB
+// ---------------------------------------------------------------------------
+
+function buildSummaryObject(storeData: StoreData): Record<string, unknown> {
   const { shop, orders, metrics } = storeData;
 
   const orderStatusBreakdown: Record<string, number> = {};
@@ -32,7 +35,7 @@ function buildPayload(storeData: StoreData): string {
     orderStatusBreakdown[key] = (orderStatusBreakdown[key] ?? 0) + 1;
   }
 
-  return JSON.stringify({
+  return {
     storeName: shop.name,
     plan: shop.plan.displayName,
     currency: metrics.currencyCode,
@@ -55,7 +58,64 @@ function buildPayload(storeData: StoreData): string {
           ? `${p.currencyCode} ${p.minPrice.toFixed(2)}`
           : `${p.currencyCode} ${p.minPrice.toFixed(2)}–${p.maxPrice.toFixed(2)}`,
     })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// DB persistence — called after the stream closes; failure never breaks the
+// API response because the HTTP body is already delivered by that point.
+// ---------------------------------------------------------------------------
+
+async function persistAnalysis(storeData: StoreData, ndjsonText: string): Promise<void> {
+  let overallScore = 0;
+  let summary = '';
+  const rawInsights: Record<string, unknown>[] = [];
+  let quickWins: string[] = [];
+
+  for (const line of ndjsonText.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      if ('overallScore' in obj) {
+        overallScore = Number(obj.overallScore);
+        summary = String(obj.summary ?? '');
+      } else if ('insight' in obj) {
+        rawInsights.push(obj.insight as Record<string, unknown>);
+      } else if ('quickWins' in obj) {
+        quickWins = (obj.quickWins as string[]) ?? [];
+      }
+    } catch { /* skip malformed line */ }
+  }
+
+  if (!overallScore || !summary || rawInsights.length === 0) {
+    console.warn('[/api/analyse] Skipping DB save — incomplete NDJSON');
+    return;
+  }
+
+  const storeDomain = storeData.shop.myshopifyDomain || storeData.shop.name || 'unknown';
+  const { metrics } = storeData;
+
+  await prisma.storeAnalysis.create({
+    data: {
+      storeDomain,
+      overallScore: Math.min(10, Math.max(1, Math.round(overallScore))),
+      summary,
+      rawInsights: JSON.parse(JSON.stringify(rawInsights)),
+      quickWins,
+      snapshot: {
+        create: {
+          storeDomain,
+          productCount: metrics.totalProducts,
+          orderCount: metrics.totalOrders,
+          totalRevenue: metrics.totalRevenue,
+          rawData: JSON.parse(JSON.stringify(buildSummaryObject(storeData))),
+        },
+      },
+    },
   });
+
+  console.log('[/api/analyse] Analysis persisted for', storeDomain);
 }
 
 // ---------------------------------------------------------------------------
@@ -68,7 +128,6 @@ export async function POST() {
     return Response.json({ error: 'GROQ_API_KEY not configured' }, { status: 503 });
   }
 
-  // Fetch store data server-side — avoids sending large arrays client→server
   let storeData: StoreData;
   try {
     storeData = await getStoreData();
@@ -82,14 +141,12 @@ export async function POST() {
     apiKey,
   });
 
-  // Initialise the stream before returning the Response so auth/quota errors
-  // are caught here and can still produce a proper HTTP error status.
   const groqStream = await client.chat.completions
     .create({
       model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `Analyse this store:\n${buildPayload(storeData)}` },
+        { role: 'user', content: `Analyse this store:\n${JSON.stringify(buildSummaryObject(storeData))}` },
       ],
       max_tokens: 1024,
       stream: true,
@@ -103,26 +160,39 @@ export async function POST() {
     return Response.json({ error: 'AI service unavailable' }, { status: 502 });
   }
 
-  // Pipe Groq token deltas into a ReadableStream sent to the browser.
-  // Real streaming: each token is enqueued as it arrives via for await...of.
   const encoder = new TextEncoder();
+
+  // Accumulate the full NDJSON text as tokens stream through, so we can
+  // persist it after the stream closes without a second Groq call.
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let accumulated = '';
+
       try {
         for await (const chunk of groqStream) {
           const delta = chunk.choices[0]?.delta?.content;
           if (delta) {
+            accumulated += delta;
             controller.enqueue(encoder.encode(delta));
           }
         }
+        // Close the stream — the browser has all tokens at this point.
         controller.close();
       } catch (err) {
         console.error('[/api/analyse] Error during stream read:', err);
         controller.error(err);
+        return;
+      }
+
+      // Persist to DB after the response body is fully delivered.
+      // A failure here is non-fatal — the client already has its data.
+      try {
+        await persistAnalysis(storeData, accumulated);
+      } catch (err) {
+        console.error('[/api/analyse] DB persistence failed (non-fatal):', err);
       }
     },
     cancel() {
-      // Client disconnected — abort the upstream Groq request
       groqStream.controller.abort();
     },
   });
@@ -131,7 +201,6 @@ export async function POST() {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
       'Cache-Control': 'no-cache, no-store',
-      // Prevent Vercel / nginx edge proxies from buffering the stream
       'X-Accel-Buffering': 'no',
     },
   });

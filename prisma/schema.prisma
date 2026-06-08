@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model StoreAnalysis {
+  id           String           @id @default(cuid())
+  storeDomain  String
+  overallScore Int
+  summary      String
+  rawInsights  Json
+  quickWins    Json
+  createdAt    DateTime         @default(now())
+  snapshot     ShopifySnapshot?
+}
+
+model ShopifySnapshot {
+  id           String        @id @default(cuid())
+  storeDomain  String
+  productCount Int
+  orderCount   Int
+  totalRevenue Float
+  rawData      Json
+  createdAt    DateTime      @default(now())
+  analysisId   String        @unique
+  analysis     StoreAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+}

@@ -35,6 +35,13 @@ function ChartIcon() {
     </svg>
   );
 }
+function ClockIcon() {
+  return (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
 function CogIcon() {
   return (
     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -165,6 +172,13 @@ export default function Sidebar({ shop, isMockData }: SidebarProps) {
             icon={<BagIcon />}
             label="Orders"
             active={pathname.startsWith('/orders')}
+            onClick={close}
+          />
+          <NavItem
+            href="/history"
+            icon={<ClockIcon />}
+            label="History"
+            active={pathname.startsWith('/history')}
             onClick={close}
           />
           <p className="mb-2 mt-5 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">More</p>
