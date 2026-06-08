@@ -4,6 +4,8 @@ import StoreStats from '@/components/StoreStats';
 import AIInsightsSection from '@/components/AIInsightsSection';
 import type { StoreData } from '@/types/shopify';
 
+export const dynamic = 'force-dynamic';
+
 // ── error view ────────────────────────────────────────────────────────────────
 
 function ErrorView({ message }: { message: string }) {

@@ -2,6 +2,8 @@ import { getStoreDataCached } from '@/lib/shopify/cached';
 import MobileMenuButton from '@/components/MobileMenuButton';
 import ProductsTable from '@/components/ProductsTable';
 
+export const dynamic = 'force-dynamic';
+
 export default async function ProductsPage() {
   const { shop, products, isMockData } = await getStoreDataCached();
 

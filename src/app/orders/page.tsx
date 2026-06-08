@@ -3,6 +3,8 @@ import MobileMenuButton from '@/components/MobileMenuButton';
 import OrdersTable from '@/components/OrdersTable';
 import OrderSummary from '@/components/OrderSummary';
 
+export const dynamic = 'force-dynamic';
+
 export default async function OrdersPage() {
   const { shop, orders, isMockData } = await getStoreDataCached();
 

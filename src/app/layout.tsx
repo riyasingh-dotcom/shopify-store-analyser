@@ -5,6 +5,8 @@ import { SidebarProvider } from '@/components/SidebarContext';
 import Sidebar from '@/components/Sidebar';
 import { getStoreDataCached } from '@/lib/shopify/cached';
 
+export const dynamic = 'force-dynamic';
+
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 
