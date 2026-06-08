@@ -1,7 +1,7 @@
 import { getStoreDataCached } from '@/lib/shopify/cached';
 import MobileMenuButton from '@/components/MobileMenuButton';
-import StoreStats from '@/components/StoreStats';
-import AIInsightsSection from '@/components/AIInsightsSection';
+import StoreMetrics from '@/components/StoreMetrics';
+import StreamingAnalysis from '@/components/StreamingAnalysis';
 import type { StoreData } from '@/types/shopify';
 
 export const dynamic = 'force-dynamic';
@@ -85,8 +85,8 @@ export default async function DashboardPage() {
 
       <main className="flex-1 space-y-4 p-4 sm:space-y-6 sm:p-6">
         {data.isMockData && <MockBanner />}
-        <StoreStats data={data} />
-        <AIInsightsSection />
+        <StoreMetrics metrics={data.metrics} orders={data.orders} />
+        <StreamingAnalysis />
       </main>
 
       <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6">
