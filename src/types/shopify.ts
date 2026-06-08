@@ -64,7 +64,7 @@ export interface ProductsQuery {
 export interface OrdersQuery {
   orders: {
     edges: Array<{ node: Order }>;
-    pageInfo: { hasNextPage: boolean };
+    pageInfo: { hasNextPage: boolean; endCursor?: string };
   };
 }
 

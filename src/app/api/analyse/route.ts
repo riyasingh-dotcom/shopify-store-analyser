@@ -119,6 +119,48 @@ async function persistAnalysis(storeData: StoreData, ndjsonText: string): Promis
 }
 
 // ---------------------------------------------------------------------------
+// Groq helper — retries on rate-limit (429) and server errors (5xx)
+// ---------------------------------------------------------------------------
+
+async function createGroqStream(
+  client: OpenAI,
+  systemPrompt: string,
+  userContent: string,
+  maxRetries = 2,
+) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await client.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system' as const, content: systemPrompt },
+          { role: 'user' as const, content: userContent },
+        ],
+        max_tokens: 1024,
+        stream: true as const,
+      });
+    } catch (err: unknown) {
+      lastError = err;
+      const httpStatus = (err as { status?: number })?.status;
+      if (
+        attempt < maxRetries &&
+        (httpStatus === 429 || (typeof httpStatus === 'number' && httpStatus >= 500))
+      ) {
+        const delay = 600 * 2 ** attempt; // 600ms, 1200ms
+        console.warn(
+          `[/api/analyse] Groq attempt ${attempt + 1} failed (${httpStatus}), retrying in ${delay}ms`,
+        );
+        await new Promise<void>((r) => setTimeout(r, delay));
+        continue;
+      }
+      break;
+    }
+  }
+  throw lastError;
+}
+
+// ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
 
@@ -141,18 +183,10 @@ export async function POST() {
     apiKey,
   });
 
-  const groqStream = await client.chat.completions
-    .create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `Analyse this store:\n${JSON.stringify(buildSummaryObject(storeData))}` },
-      ],
-      max_tokens: 1024,
-      stream: true,
-    })
+  const userContent = `Analyse this store:\n${JSON.stringify(buildSummaryObject(storeData))}`;
+  const groqStream = await createGroqStream(client, SYSTEM_PROMPT, userContent)
     .catch((err: unknown) => {
-      console.error('[/api/analyse] Groq stream init failed:', err);
+      console.error('[/api/analyse] Groq failed after retries:', err);
       return null;
     });
 

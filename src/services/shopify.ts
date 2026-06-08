@@ -17,19 +17,19 @@ import { isMockMode } from '@/lib/shopify/client';
 import { calculateMetrics } from '@/lib/analytics';
 import type { Product, Order, StoreData } from '@/types/shopify';
 
-export async function getProducts(count = 50): Promise<Product[]> {
-  return fetchProducts(count);
+export async function getProducts(maxCount?: number): Promise<Product[]> {
+  return fetchProducts(maxCount);
 }
 
-export async function getOrders(count = 20): Promise<Order[]> {
-  return fetchOrders(count);
+export async function getOrders(maxCount?: number): Promise<Order[]> {
+  return fetchOrders(maxCount);
 }
 
 export async function getStoreData(): Promise<StoreData> {
   const [shop, products, orders] = await Promise.all([
     getShopInfo(),
-    getProducts(50),
-    getOrders(20),
+    getProducts(),
+    getOrders(),
   ]);
 
   return {
