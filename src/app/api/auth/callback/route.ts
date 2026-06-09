@@ -11,6 +11,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+/** Prevent HTML injection in the token display page. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
@@ -19,6 +28,14 @@ export async function GET(request: NextRequest) {
   if (!code || !shop) {
     return NextResponse.json(
       { error: 'Missing "code" or "shop" query parameter from Shopify.' },
+      { status: 400 }
+    );
+  }
+
+  // Validate shop is a real myshopify.com domain to prevent SSRF.
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) {
+    return NextResponse.json(
+      { error: 'Invalid shop domain. Must be a *.myshopify.com address.' },
       { status: 400 }
     );
   }
@@ -54,6 +71,9 @@ export async function GET(request: NextRequest) {
 
   const { access_token } = await tokenResponse.json() as { access_token: string };
 
+  const safeShop = escapeHtml(shop);
+  const safeToken = escapeHtml(access_token);
+
   // Show the token so the developer can copy it into .env.local
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -74,13 +94,13 @@ export async function GET(request: NextRequest) {
 </head>
 <body>
   <div class="card">
-    <div class="badge">✓ Connected</div>
+    <div class="badge">&#10003; Connected</div>
     <h1>Your Admin API Access Token</h1>
     <p>Copy the lines below and paste them into your <code style="background:#0f172a;padding:2px 6px;border-radius:4px;">.env.local</code> file, replacing the placeholder values.</p>
-    <pre>SHOPIFY_STORE_DOMAIN=${shop}
-SHOPIFY_ADMIN_ACCESS_TOKEN=${access_token}</pre>
+    <pre>SHOPIFY_STORE_DOMAIN=${safeShop}
+SHOPIFY_ADMIN_ACCESS_TOKEN=${safeToken}</pre>
     <div class="warning">
-      ⚠️ Keep this token secret. Never commit it to git or share it publicly.
+      &#9888;&#65039; Keep this token secret. Never commit it to git or share it publicly.
     </div>
     <p class="step">After saving .env.local, restart your dev server: <code style="background:#0f172a;padding:2px 6px;border-radius:4px;">npm run dev</code></p>
   </div>
@@ -88,6 +108,6 @@ SHOPIFY_ADMIN_ACCESS_TOKEN=${access_token}</pre>
 </html>`;
 
   return new NextResponse(html, {
-    headers: { 'Content-Type': 'text/html' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 }

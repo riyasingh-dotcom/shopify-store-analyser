@@ -89,7 +89,7 @@ function NavItem({ icon, label, href, active, disabled, onClick }: NavItemProps)
       </Link>
     );
   }
-  return <div className={style}>{content}</div>;
+  return <div className={style} aria-disabled="true">{content}</div>;
 }
 
 // ── sidebar ───────────────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ export default function Sidebar({ shop, isMockData }: SidebarProps) {
           <button
             onClick={close}
             aria-label="Close sidebar"
-            className="flex items-center justify-center rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 lg:hidden"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 lg:hidden"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6 18L18 6M6 6l12 12" />

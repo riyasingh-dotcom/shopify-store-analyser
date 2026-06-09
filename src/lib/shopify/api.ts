@@ -15,7 +15,6 @@ import type {
   ShopInfo,
   Product,
   Order,
-  DashboardData,
   ShopQuery,
   ProductsQuery,
   OrdersQuery,
@@ -186,25 +185,3 @@ export async function getOrders(maxCount = 250): Promise<Order[]> {
   return all;
 }
 
-/**
- * Fetches shop info, products, and orders in parallel.
- * Returns all data needed by the dashboard in a single call.
- */
-export async function getDashboardData(): Promise<DashboardData> {
-  if (isMockMode()) {
-    return {
-      shop: MOCK_SHOP,
-      products: MOCK_PRODUCTS,
-      orders: MOCK_ORDERS,
-      isMockData: true,
-    };
-  }
-
-  const [shop, products, orders] = await Promise.all([
-    getShopInfo(),
-    getProducts(),
-    getOrders(),
-  ]);
-
-  return { shop, products, orders, isMockData: false };
-}

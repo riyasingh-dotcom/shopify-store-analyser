@@ -88,7 +88,7 @@ async function persistAnalysis(storeData: StoreData, ndjsonText: string): Promis
     } catch { /* skip malformed line */ }
   }
 
-  if (!overallScore || !summary || rawInsights.length === 0) {
+  if (overallScore < 1 || !summary || rawInsights.length === 0) {
     console.warn('[/api/analyse] Skipping DB save — incomplete NDJSON');
     return;
   }
@@ -115,7 +115,6 @@ async function persistAnalysis(storeData: StoreData, ndjsonText: string): Promis
     },
   });
 
-  console.log('[/api/analyse] Analysis persisted for', storeDomain);
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +163,14 @@ async function createGroqStream(
 // Route handler
 // ---------------------------------------------------------------------------
 
-export async function POST() {
+export async function POST(request: Request) {
+  // Reject requests that don't originate from this app's own pages.
+  // Browsers enforce CORS preflight for custom headers, so cross-origin
+  // callers cannot include X-Requested-With without explicit server permission.
+  if (request.headers.get('x-requested-with') !== 'XMLHttpRequest') {
+    return Response.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return Response.json({ error: 'GROQ_API_KEY not configured' }, { status: 503 });
