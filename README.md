@@ -387,28 +387,3 @@ The following security controls are implemented:
 **Security as retrofit** — Adding CSRF guards, SSRF validation, and HTML encoding as a post-build pass made clear how easy it is to ship a functional but unguarded app — and how small each individual fix is once the gap is identified.
 
 ---
-
-## License
-
-This project is private (`"private": true` in `package.json`). No license is specified. Add a `LICENSE` file if you intend to open-source or share the code.
-
----
-
-## Appendix: Items to Fill In Manually
-
-| Item | Where |
-|---|---|
-| Live demo URL | Add a badge/link at the top of this file after deploying |
-| Repository URL | Replace `YOUR_USERNAME` in the installation clone command |
-| License | Decide on MIT, proprietary, etc., and add a `LICENSE` file |
-| Screenshot or demo GIF | Add to the Overview section to illustrate the streaming UI |
-| Shopify API scopes | Document required scopes for the Admin API token (at minimum: `read_products`, `read_orders`, `read_inventory`) |
-
-## Appendix: Codebase Inconsistencies
-
-| Location | Issue |
-|---|---|
-| `CLAUDE.md` — Environment Variables | Documents `GEMINI_API_KEY` as required. The implementation uses Groq (`GROQ_API_KEY`). `@google/genai` has been removed from the project. |
-| `CLAUDE.md` — AI Insights section | References `app/actions/analyse.ts` (a server action calling Gemini) and `components/AIInsightsSection.tsx`. Neither exists. The actual files are `app/api/analyse/route.ts` and `components/StreamingAnalysis.tsx`. |
-| `CLAUDE.md` — AI Insights section | Describes `analyseStore()` / `analyseCurrentStore()` exports — these functions do not exist in the codebase. |
-| `src/components/LoadingSkeleton.tsx` | Defines `SidebarSkeleton` with a dark colour scheme (`bg-gray-950`) that does not match the white sidebar. The file is never imported anywhere and is dead code. |
