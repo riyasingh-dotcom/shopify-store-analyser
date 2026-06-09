@@ -12,9 +12,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  outputFileTracingIncludes: {
-    '**/*': ['./src/generated/prisma/**/*.node'],
-  },
+  serverExternalPackages: ['@prisma/client'],
   async headers() {
     return [
       {
