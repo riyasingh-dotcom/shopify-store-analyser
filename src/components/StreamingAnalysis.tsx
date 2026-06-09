@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, startTransition } from 'react';
 import StoreScoreCard from './StoreScoreCard';
 import InsightCard from './InsightCard';
 import QuickWins from './QuickWins';
@@ -283,6 +283,18 @@ function InsightsContent({
 // Main component
 // ---------------------------------------------------------------------------
 
+function getAgeLabel(ts: string | null, nowMs: number): string {
+  if (!ts) return '';
+  const diff = nowMs - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return hrs < 24
+    ? `${hrs}h ago`
+    : new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
 type Status = 'loading' | 'streaming' | 'done' | 'error';
 
 export default function StreamingAnalysis() {
@@ -296,28 +308,14 @@ export default function StreamingAnalysis() {
   const [lastAnalysedAt, setLastAnalysedAt] = useState<string | null>(
     cachedAt ?? null,
   );
-  const [ageLabel, setAgeLabel] = useState('');
-
-  // Compute relative-time label client-side to avoid SSR hydration mismatch.
+  // Updated every minute so ageLabel re-derives with current Date.now()
+  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (!lastAnalysedAt) { setAgeLabel(''); return; }
-    function compute() {
-      const diff = Date.now() - new Date(lastAnalysedAt!).getTime();
-      const mins = Math.floor(diff / 60_000);
-      if (mins < 1)       setAgeLabel('just now');
-      else if (mins < 60) setAgeLabel(`${mins}m ago`);
-      else {
-        const hrs = Math.floor(mins / 60);
-        setAgeLabel(hrs < 24
-          ? `${hrs}h ago`
-          : new Date(lastAnalysedAt!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-        );
-      }
-    }
-    compute();
-    const t = setInterval(compute, 60_000);
+    if (!lastAnalysedAt) return;
+    const t = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => clearInterval(t);
   }, [lastAnalysedAt]);
+  const ageLabel = getAgeLabel(lastAnalysedAt, nowMs);
 
   const startAnalysis = useCallback(async () => {
     setStatus('streaming');
@@ -462,7 +460,7 @@ export default function StreamingAnalysis() {
 
   useEffect(() => {
     if (analysisCache !== undefined) return; // cache hit — skip DB check
-    initAnalysis();
+    startTransition(initAnalysis);
   }, [initAnalysis]);
 
   if (status === 'streaming' && partial?.overallScore) {
