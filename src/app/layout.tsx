@@ -4,6 +4,16 @@ import './globals.css';
 import { SidebarProvider } from '@/components/SidebarContext';
 import Sidebar from '@/components/Sidebar';
 import { getStoreDataCached } from '@/lib/shopify/cached';
+import type { ShopInfo } from '@/types/shopify';
+
+const FALLBACK_SHOP: ShopInfo = {
+  name: 'Store',
+  email: '',
+  myshopifyDomain: '',
+  primaryDomain: { url: '' },
+  currencyCode: 'USD',
+  plan: { displayName: '' },
+};
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +26,15 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { shop, isMockData } = await getStoreDataCached();
+  // Wrap in try/catch so a bad API key or unreachable store never crashes
+  // the entire layout. The page's own error boundary handles content-area errors.
+  let shop: ShopInfo = FALLBACK_SHOP;
+  let isMockData = true;
+  try {
+    ({ shop, isMockData } = await getStoreDataCached());
+  } catch (err) {
+    console.error('[RootLayout] getStoreDataCached failed, using fallback:', err);
+  }
 
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
