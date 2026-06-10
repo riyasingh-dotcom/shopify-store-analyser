@@ -58,11 +58,11 @@ export default function StoreScoreCard({ analysis }: StoreScoreCardProps) {
   const gap = circumference - filled;
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+    <div className="relative flex h-full flex-col overflow-hidden rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
       {/* Accent bar */}
       <div className={`absolute inset-x-0 top-0 h-0.5 ${colors.bar}`} />
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+      <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
         {/* Circular score dial */}
         <div className="relative shrink-0">
           <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">

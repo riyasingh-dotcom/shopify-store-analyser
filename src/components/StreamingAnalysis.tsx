@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, startTransition } from 'react';
 import StoreScoreCard from './StoreScoreCard';
 import InsightCard from './InsightCard';
 import QuickWins from './QuickWins';
@@ -8,11 +8,10 @@ import InsightsSkeleton from './InsightsSkeleton';
 import type { StoreAnalysis, Insight } from '@/types/analysis';
 
 // Survives client-side route changes; cleared when the user clicks Regenerate.
-// undefined = not yet fetched | null = error | StoreAnalysis = success
+// undefined = not yet checked | null = no result / error | StoreAnalysis = loaded
 let analysisCache: StoreAnalysis | null | undefined = undefined;
+let cachedAt: string | undefined = undefined; // ISO timestamp of the cached analysis
 
-// Incremental shape built as NDJSON lines arrive. All fields start empty so
-// sub-components can render as soon as their data exists.
 interface PartialAnalysis {
   overallScore: number;
   summary: string;
@@ -43,7 +42,6 @@ function isValidAnalysis(v: unknown): v is StoreAnalysis {
 function StreamingPlaceholder({ progress = 0 }: { progress?: number }) {
   return (
     <div className="space-y-5">
-      {/* Header row */}
       <div className="flex items-center gap-2">
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100">
           <svg
@@ -64,7 +62,6 @@ function StreamingPlaceholder({ progress = 0 }: { progress?: number }) {
         </div>
       </div>
 
-      {/* Live progress banner */}
       <div className="overflow-hidden rounded-xl border border-violet-100 bg-violet-50 p-6">
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="flex items-center gap-1.5">
@@ -99,11 +96,7 @@ function StreamingPlaceholder({ progress = 0 }: { progress?: number }) {
 function ErrorBanner({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-5">
-      <svg
-        className="mt-0.5 h-5 w-5 shrink-0 text-red-400"
-        viewBox="0 0 20 20"
-        fill="currentColor"
-      >
+      <svg className="mt-0.5 h-5 w-5 shrink-0 text-red-400" viewBox="0 0 20 20" fill="currentColor">
         <path
           fillRule="evenodd"
           d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z"
@@ -126,17 +119,38 @@ function ErrorBanner({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-// Renders whatever partial data has arrived so far.
-// Called every time a new NDJSON line is parsed — score card appears first,
-// then insight cards one-by-one, then quick wins.
+function RegenerateButton({ onClick, ageLabel }: { onClick: () => void; ageLabel: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      {ageLabel && (
+        <span className="text-xs text-gray-400">{ageLabel}</span>
+      )}
+      <button
+        onClick={onClick}
+        className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900 active:scale-95"
+      >
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8" />
+          <path d="M21 3v5h-5" />
+          <path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16" />
+          <path d="M8 16H3v5" />
+        </svg>
+        Regenerate Analysis
+      </button>
+    </div>
+  );
+}
+
 function ProgressiveContent({
   partial,
   isStreaming,
   onRegenerate,
+  ageLabel = '',
 }: {
   partial: PartialAnalysis;
   isStreaming: boolean;
   onRegenerate: () => void;
+  ageLabel?: string;
 }) {
   return (
     <div className="space-y-5">
@@ -163,22 +177,10 @@ function ProgressiveContent({
           </div>
         </div>
         {!isStreaming && (
-          <button
-            onClick={onRegenerate}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900 active:scale-95"
-          >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8" />
-              <path d="M21 3v5h-5" />
-              <path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16" />
-              <path d="M8 16H3v5" />
-            </svg>
-            Regenerate Analysis
-          </button>
+          <RegenerateButton onClick={onRegenerate} ageLabel={ageLabel} />
         )}
       </div>
 
-      {/* Score card — appears as soon as line 1 arrives */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <StoreScoreCard analysis={{ ...partial, insights: partial.insights, quickWins: partial.quickWins }} />
@@ -195,7 +197,6 @@ function ProgressiveContent({
         </div>
       </div>
 
-      {/* Insight cards — appear one-by-one as each line arrives */}
       {partial.insights.length > 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {partial.insights.map((insight, i) => (
@@ -219,9 +220,11 @@ function ProgressiveContent({
 function InsightsContent({
   analysis,
   onRegenerate,
+  ageLabel = '',
 }: {
   analysis: StoreAnalysis;
   onRegenerate: () => void;
+  ageLabel?: string;
 }) {
   const priorityOrder = { high: 0, medium: 1, low: 2 } as const;
   const sorted = [...analysis.insights].sort((a, b) => {
@@ -232,7 +235,6 @@ function InsightsContent({
 
   return (
     <div className="space-y-5">
-      {/* Header + Regenerate */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100">
@@ -256,29 +258,9 @@ function InsightsContent({
           </div>
         </div>
 
-        <button
-          onClick={onRegenerate}
-          className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900 active:scale-95"
-        >
-          <svg
-            className="h-3.5 w-3.5"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8" />
-            <path d="M21 3v5h-5" />
-            <path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16" />
-            <path d="M8 16H3v5" />
-          </svg>
-          Regenerate Analysis
-        </button>
+        <RegenerateButton onClick={onRegenerate} ageLabel={ageLabel} />
       </div>
 
-      {/* Score + Quick Wins */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <StoreScoreCard analysis={analysis} />
@@ -288,7 +270,6 @@ function InsightsContent({
         </div>
       </div>
 
-      {/* Insight cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {sorted.map((insight, i) => (
           <InsightCard key={i} insight={insight} />
@@ -302,17 +283,39 @@ function InsightsContent({
 // Main component
 // ---------------------------------------------------------------------------
 
-type Status = 'idle' | 'streaming' | 'done' | 'error';
+function getAgeLabel(ts: string | null, nowMs: number): string {
+  if (!ts) return '';
+  const diff = nowMs - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return hrs < 24
+    ? `${hrs}h ago`
+    : new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+type Status = 'loading' | 'streaming' | 'done' | 'error';
 
 export default function StreamingAnalysis() {
   const [status, setStatus] = useState<Status>(
-    analysisCache !== undefined ? 'done' : 'idle',
+    analysisCache !== undefined ? 'done' : 'loading',
   );
   const [analysis, setAnalysis] = useState<StoreAnalysis | null>(
     analysisCache ?? null,
   );
-  // Incremental state updated as each NDJSON line arrives
   const [partial, setPartial] = useState<PartialAnalysis | null>(null);
+  const [lastAnalysedAt, setLastAnalysedAt] = useState<string | null>(
+    cachedAt ?? null,
+  );
+  // Updated every minute so ageLabel re-derives with current Date.now()
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!lastAnalysedAt) return;
+    const t = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, [lastAnalysedAt]);
+  const ageLabel = getAgeLabel(lastAnalysedAt, nowMs);
 
   const startAnalysis = useCallback(async () => {
     setStatus('streaming');
@@ -411,6 +414,8 @@ export default function StreamingAnalysis() {
 
       console.log('%c[Stream] complete — analysis valid', 'color:#7c3aed;font-weight:bold', result);
       analysisCache = result;
+      cachedAt = new Date().toISOString();
+      setLastAnalysedAt(cachedAt);
       setAnalysis(result);
       setStatus('done');
     } catch (err) {
@@ -420,29 +425,56 @@ export default function StreamingAnalysis() {
     }
   }, []);
 
+  // On first load: fetch the latest saved analysis from DB before calling Groq.
+  // The module-level cache ensures this only runs once per browser session.
+  const initAnalysis = useCallback(async () => {
+    try {
+      const res = await fetch('/api/analyse/latest');
+      if (res.ok) {
+        const json = await res.json() as {
+          analysis: StoreAnalysis | null;
+          meta?: { createdAt: string };
+        };
+        if (json.analysis && isValidAnalysis(json.analysis)) {
+          analysisCache = json.analysis;
+          cachedAt = json.meta?.createdAt;
+          setAnalysis(json.analysis);
+          setLastAnalysedAt(json.meta?.createdAt ?? null);
+          setStatus('done');
+          console.log('%c[Analysis] loaded from DB', 'color:#7c3aed;font-weight:bold', json.meta);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[Analysis] DB check failed, falling back to streaming:', err);
+    }
+    await startAnalysis();
+  }, [startAnalysis]);
+
   const regenerate = useCallback(() => {
     analysisCache = undefined;
+    cachedAt = undefined;
+    setLastAnalysedAt(null);
     startAnalysis();
   }, [startAnalysis]);
 
   useEffect(() => {
-    if (analysisCache !== undefined) return; // cache hit — skip fetch
-    startAnalysis();
-  }, [startAnalysis]);
+    if (analysisCache !== undefined) return; // cache hit — skip DB check
+    startTransition(initAnalysis);
+  }, [initAnalysis]);
 
-  // Show progressive content as soon as the first NDJSON line (score + summary) arrives
   if (status === 'streaming' && partial?.overallScore) {
-    return <ProgressiveContent partial={partial} isStreaming={true} onRegenerate={regenerate} />;
+    return <ProgressiveContent partial={partial} isStreaming={true} onRegenerate={regenerate} ageLabel={ageLabel} />;
   }
-  if (status === 'idle' || status === 'streaming') {
+  if (status === 'loading' || status === 'streaming') {
     return <StreamingPlaceholder />;
   }
   if (status === 'error' || !analysis) {
     return <ErrorBanner onRetry={regenerate} />;
   }
-  // Show final result; if partial exists use it to avoid a flash of reorder on done
+  // Use partial to avoid a flash of reorder when streaming completes
   if (partial) {
-    return <ProgressiveContent partial={partial} isStreaming={false} onRegenerate={regenerate} />;
+    return <ProgressiveContent partial={partial} isStreaming={false} onRegenerate={regenerate} ageLabel={ageLabel} />;
   }
-  return <InsightsContent analysis={analysis} onRegenerate={regenerate} />;
+  return <InsightsContent analysis={analysis} onRegenerate={regenerate} ageLabel={ageLabel} />;
 }

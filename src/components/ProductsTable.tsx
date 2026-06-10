@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { Product, ProductStatus, MoneyV2 } from '@/types/shopify';
 
-const PAGE_SIZE = 6;
+const PAGE_SIZE = 10;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 

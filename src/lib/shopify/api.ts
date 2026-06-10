@@ -140,30 +140,50 @@ export async function getShopInfo(): Promise<ShopInfo> {
   return data.shop;
 }
 
-export async function getProducts(count = 50): Promise<Product[]> {
+export async function getProducts(maxCount = 250): Promise<Product[]> {
   if (isMockMode()) return MOCK_PRODUCTS;
 
-  const { data, error } = await shopifyFetch<ProductsQuery>({
-    query: PRODUCTS_QUERY,
-    variables: { first: count },
-  });
-  if (error || !data) throw new Error(error ?? 'Failed to fetch products');
+  const all: Product[] = [];
+  let cursor: string | undefined;
 
-  // Flatten GraphQL connection edges into a plain array
-  return data.products.edges.map(({ node }) => node);
+  do {
+    const batchSize = Math.min(250, maxCount - all.length);
+    const { data, error } = await shopifyFetch<ProductsQuery>({
+      query: PRODUCTS_QUERY,
+      variables: { first: batchSize, after: cursor },
+    });
+    if (error || !data) throw new Error(error ?? 'Failed to fetch products');
+
+    all.push(...data.products.edges.map(({ node }) => node));
+    cursor = data.products.pageInfo.hasNextPage
+      ? data.products.pageInfo.endCursor
+      : undefined;
+  } while (cursor && all.length < maxCount);
+
+  return all;
 }
 
-export async function getOrders(count = 20): Promise<Order[]> {
+export async function getOrders(maxCount = 250): Promise<Order[]> {
   if (isMockMode()) return MOCK_ORDERS;
 
-  const { data, error } = await shopifyFetch<OrdersQuery>({
-    query: ORDERS_QUERY,
-    variables: { first: count },
-  });
-  if (error || !data) throw new Error(error ?? 'Failed to fetch orders');
+  const all: Order[] = [];
+  let cursor: string | undefined;
 
-  // Flatten GraphQL connection edges into a plain array
-  return data.orders.edges.map(({ node }) => node);
+  do {
+    const batchSize = Math.min(250, maxCount - all.length);
+    const { data, error } = await shopifyFetch<OrdersQuery>({
+      query: ORDERS_QUERY,
+      variables: { first: batchSize, after: cursor },
+    });
+    if (error || !data) throw new Error(error ?? 'Failed to fetch orders');
+
+    all.push(...data.orders.edges.map(({ node }) => node));
+    cursor = data.orders.pageInfo.hasNextPage
+      ? data.orders.pageInfo.endCursor
+      : undefined;
+  } while (cursor && all.length < maxCount);
+
+  return all;
 }
 
 /**
@@ -182,8 +202,8 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   const [shop, products, orders] = await Promise.all([
     getShopInfo(),
-    getProducts(50),
-    getOrders(20),
+    getProducts(),
+    getOrders(),
   ]);
 
   return { shop, products, orders, isMockData: false };

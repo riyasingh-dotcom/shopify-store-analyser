@@ -30,8 +30,8 @@ export const SHOP_QUERY = `
  * $first is a required variable — pass e.g. { first: 50 }.
  */
 export const PRODUCTS_QUERY = `
-  query GetProducts($first: Int!) {
-    products(first: $first) {
+  query GetProducts($first: Int!, $after: String) {
+    products(first: $first, after: $after) {
       edges {
         node {
           id
@@ -65,8 +65,8 @@ export const PRODUCTS_QUERY = `
  * $first is a required variable — pass e.g. { first: 20 }.
  */
 export const ORDERS_QUERY = `
-  query GetOrders($first: Int!) {
-    orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+  query GetOrders($first: Int!, $after: String) {
+    orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) {
       edges {
         node {
           id
@@ -84,6 +84,7 @@ export const ORDERS_QUERY = `
       }
       pageInfo {
         hasNextPage
+        endCursor
       }
     }
   }
