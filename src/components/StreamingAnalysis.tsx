@@ -35,11 +35,23 @@ function isValidAnalysis(v: unknown): v is StoreAnalysis {
   );
 }
 
+function isInsight(v: unknown): v is Insight {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.category === 'string' &&
+    typeof o.title === 'string' &&
+    typeof o.finding === 'string' &&
+    typeof o.recommendation === 'string' &&
+    (o.priority === 'high' || o.priority === 'medium' || o.priority === 'low')
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function StreamingPlaceholder({ progress = 0 }: { progress?: number }) {
+function StreamingPlaceholder() {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-2">
@@ -74,17 +86,6 @@ function StreamingPlaceholder({ progress = 0 }: { progress?: number }) {
             ))}
           </div>
           <p className="text-sm font-medium text-violet-700">Analysing your store…</p>
-          {progress > 0 && (
-            <div className="w-full max-w-xs space-y-1">
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-violet-200">
-                <div
-                  className="h-1.5 rounded-full bg-violet-500 transition-all duration-200"
-                  style={{ width: `${Math.min(progress, 100)}%` }}
-                />
-              </div>
-              <p className="text-xs text-violet-500">{Math.round(Math.min(progress, 100))}% received</p>
-            </div>
-          )}
         </div>
       </div>
 
@@ -233,6 +234,12 @@ function InsightsContent({
     return ap - bp;
   });
 
+  // Split sorted insights into complete 3-col rows and the remaining tail (0–2 items).
+  // tailCards drives the orphan-spanning logic in the grid below.
+  const rem = sorted.length % 3;
+  const fullRows = rem === 0 ? sorted : sorted.slice(0, sorted.length - rem);
+  const tailCards = rem === 0 ? [] : sorted.slice(sorted.length - rem);
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-4">
@@ -271,9 +278,25 @@ function InsightsContent({
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {sorted.map((insight, i) => (
-          <InsightCard key={i} insight={insight} />
+        {fullRows.map((insight) => (
+          <InsightCard key={`${insight.category}::${insight.title}`} insight={insight} />
         ))}
+
+        {/* 1 orphan → span all 3 columns (full-width card) */}
+        {tailCards.length === 1 && (
+          <div className="sm:col-span-2 xl:col-span-3">
+            <InsightCard insight={tailCards[0]} />
+          </div>
+        )}
+
+        {/* 2 orphans → 2-col sub-grid spanning all 3 columns (evenly distributed) */}
+        {tailCards.length === 2 && (
+          <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-2 xl:col-span-3">
+            {tailCards.map((insight) => (
+              <InsightCard key={`${insight.category}::${insight.title}`} insight={insight} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -323,7 +346,10 @@ export default function StreamingAnalysis() {
     setPartial(null);
 
     try {
-      const response = await fetch('/api/analyse', { method: 'POST' });
+      const response = await fetch('/api/analyse', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
 
       if (!response.ok || !response.body) {
         analysisCache = null;
@@ -335,20 +361,14 @@ export default function StreamingAnalysis() {
       const decoder = new TextDecoder();
       let lineBuffer = '';
       let current: PartialAnalysis = { overallScore: 0, summary: '', insights: [], quickWins: [] };
-      let chunkCount = 0;
-
-      console.log('%c[Stream] started', 'color:#7c3aed;font-weight:bold');
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
-          console.log(`%c[Stream] done — ${chunkCount} chunks received`, 'color:#7c3aed;font-weight:bold');
           break;
         }
 
-        chunkCount++;
         const text = decoder.decode(value, { stream: true });
-        console.log(`%c[Stream] chunk #${chunkCount} (+${text.length} chars)`, 'color:#a78bfa', text);
 
         lineBuffer += text;
 
@@ -364,13 +384,13 @@ export default function StreamingAnalysis() {
 
             if ('overallScore' in obj) {
               current = { ...current, overallScore: Number(obj.overallScore), summary: String(obj.summary ?? '') };
-              console.log('%c[Stream] line parsed → score', 'color:#059669', obj);
-            } else if ('insight' in obj) {
-              current = { ...current, insights: [...current.insights, obj.insight as Insight] };
-              console.log(`%c[Stream] line parsed → insight #${current.insights.length}`, 'color:#059669', obj.insight);
+            } else if ('insight' in obj && isInsight(obj.insight)) {
+              current = { ...current, insights: [...current.insights, obj.insight] };
             } else if ('quickWins' in obj) {
-              current = { ...current, quickWins: obj.quickWins as string[] };
-              console.log('%c[Stream] line parsed → quickWins', 'color:#059669', obj.quickWins);
+              const wins = obj.quickWins;
+              if (Array.isArray(wins) && wins.every((w): w is string => typeof w === 'string')) {
+                current = { ...current, quickWins: wins };
+              }
             } else {
               console.warn('[Stream] unrecognised line shape:', obj);
             }
@@ -389,8 +409,10 @@ export default function StreamingAnalysis() {
         try {
           const obj = JSON.parse(trailing) as Record<string, unknown>;
           if ('quickWins' in obj) {
-            current = { ...current, quickWins: obj.quickWins as string[] };
-            console.log('%c[Stream] trailing flush → quickWins', 'color:#059669', obj.quickWins);
+            const wins = obj.quickWins;
+            if (Array.isArray(wins) && wins.every((w): w is string => typeof w === 'string')) {
+              current = { ...current, quickWins: wins };
+            }
             setPartial({ ...current });
           }
         } catch {
@@ -412,7 +434,6 @@ export default function StreamingAnalysis() {
         return;
       }
 
-      console.log('%c[Stream] complete — analysis valid', 'color:#7c3aed;font-weight:bold', result);
       analysisCache = result;
       cachedAt = new Date().toISOString();
       setLastAnalysedAt(cachedAt);
@@ -441,7 +462,6 @@ export default function StreamingAnalysis() {
           setAnalysis(json.analysis);
           setLastAnalysedAt(json.meta?.createdAt ?? null);
           setStatus('done');
-          console.log('%c[Analysis] loaded from DB', 'color:#7c3aed;font-weight:bold', json.meta);
           return;
         }
       }

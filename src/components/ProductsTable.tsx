@@ -103,9 +103,10 @@ function Pagination({ page, totalPages, totalItems, pageSize, onPrev, onNext }: 
         <button
           onClick={onPrev}
           disabled={page === 0}
+          aria-label="Previous page"
           className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 19l-7-7 7-7" />
           </svg>
           Prev
@@ -113,6 +114,7 @@ function Pagination({ page, totalPages, totalItems, pageSize, onPrev, onNext }: 
         <button
           onClick={onNext}
           disabled={page >= totalPages - 1}
+          aria-label="Next page"
           className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Next
@@ -180,7 +182,7 @@ export default function ProductsTable({ products }: ProductsTableProps) {
                 <tr>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Product</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Status</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Vendor</th>
+                  <th className="hidden px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Vendor</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Price</th>
                   <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Inventory</th>
                 </tr>
@@ -189,11 +191,11 @@ export default function ProductsTable({ products }: ProductsTableProps) {
                 {visibleRows.map((product) => (
                   <tr key={product.id} className="group transition-colors hover:bg-indigo-50/30">
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-xs font-bold text-indigo-600">
                           {product.title.charAt(0).toUpperCase()}
                         </div>
-                        <span className="font-medium text-gray-900 transition-colors group-hover:text-indigo-700">
+                        <span className="truncate font-medium text-gray-900 transition-colors group-hover:text-indigo-700">
                           {product.title}
                         </span>
                       </div>
@@ -201,7 +203,7 @@ export default function ProductsTable({ products }: ProductsTableProps) {
                     <td className="px-6 py-4">
                       <StatusBadge status={product.status} />
                     </td>
-                    <td className="px-6 py-4 text-gray-500">
+                    <td className="hidden px-6 py-4 text-gray-500 sm:table-cell">
                       {product.vendor || <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-6 py-4 font-medium text-gray-700">

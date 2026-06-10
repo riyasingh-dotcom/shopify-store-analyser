@@ -84,8 +84,8 @@ export default function OrdersTable({ orders }: OrdersTableProps) {
                 <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Order</th>
                 <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Total</th>
                 <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Payment</th>
-                <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Fulfillment</th>
-                <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Date</th>
+                <th className="hidden px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Fulfillment</th>
+                <th className="hidden px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -104,13 +104,13 @@ export default function OrdersTable({ orders }: OrdersTableProps) {
                       {order.displayFinancialStatus}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="hidden px-6 py-4 sm:table-cell">
                     <div className="flex items-center gap-2 text-gray-600">
                       <span className={`h-2 w-2 rounded-full ${fulfillmentDotColor(order.displayFulfillmentStatus)}`} />
                       {order.displayFulfillmentStatus}
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-gray-400">{formatDate(order.createdAt)}</td>
+                  <td className="hidden px-6 py-4 text-gray-400 sm:table-cell">{formatDate(order.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

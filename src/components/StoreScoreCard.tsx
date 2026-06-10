@@ -65,7 +65,7 @@ export default function StoreScoreCard({ analysis }: StoreScoreCardProps) {
       <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
         {/* Circular score dial */}
         <div className="relative shrink-0">
-          <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">
+          <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90" aria-hidden="true">
             {/* Track */}
             <circle
               cx="48"

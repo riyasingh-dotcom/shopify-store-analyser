@@ -9,7 +9,7 @@ export default function MobileMenuButton() {
     <button
       onClick={toggle}
       aria-label={isOpen ? 'Close menu' : 'Open menu'}
-      className="flex items-center justify-center rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 lg:hidden"
+      className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 lg:hidden"
     >
       {isOpen ? (
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

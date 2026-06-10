@@ -9,7 +9,7 @@ export type InsightCategory =
   | 'growth';
 
 export interface Insight {
-  category: InsightCategory | string;
+  category: InsightCategory;
   title: string;
   finding: string;
   recommendation: string;

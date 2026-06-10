@@ -76,7 +76,8 @@ export default async function DashboardPage() {
   try {
     data = await getStoreDataCached();
   } catch (err) {
-    return <ErrorView message={err instanceof Error ? err.message : 'Unknown error'} />;
+    console.error('[DashboardPage] Store data fetch failed:', err);
+    return <ErrorView message="Could not load store data. Check your environment configuration." />;
   }
 
   return (

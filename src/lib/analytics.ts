@@ -1,8 +1,14 @@
 import type { Product, Order, StoreMetrics, TopProduct } from '@/types/shopify';
 
+/** parseFloat that returns 0 instead of NaN for malformed strings. */
+function safeFloat(s: string): number {
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+
 export function calculateTotalRevenue(orders: Order[]): number {
   return orders.reduce(
-    (sum, order) => sum + parseFloat(order.totalPriceSet.shopMoney.amount),
+    (sum, order) => sum + safeFloat(order.totalPriceSet.shopMoney.amount),
     0,
   );
 }
@@ -23,8 +29,8 @@ export function getTopProducts(products: Product[], limit = 5): TopProduct[] {
       title: p.title,
       vendor: p.vendor,
       totalInventory: p.totalInventory,
-      minPrice: parseFloat(p.priceRangeV2.minVariantPrice.amount),
-      maxPrice: parseFloat(p.priceRangeV2.maxVariantPrice.amount),
+      minPrice: safeFloat(p.priceRangeV2.minVariantPrice.amount),
+      maxPrice: safeFloat(p.priceRangeV2.maxVariantPrice.amount),
       currencyCode: p.priceRangeV2.minVariantPrice.currencyCode,
     }));
 }
@@ -46,7 +52,7 @@ export function calculateMetrics(
 
   const orderStats = orders.reduce(
     (acc, o) => {
-      acc.revenue += parseFloat(o.totalPriceSet.shopMoney.amount);
+      acc.revenue += safeFloat(o.totalPriceSet.shopMoney.amount);
       if (o.displayFinancialStatus.toLowerCase() === 'paid') acc.paid++;
       return acc;
     },
