@@ -13,6 +13,11 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['@prisma/client'],
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: 'cdn.shopify.com' },
+    ],
+  },
   async headers() {
     return [
       {
