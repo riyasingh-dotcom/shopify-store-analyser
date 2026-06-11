@@ -72,9 +72,15 @@ export async function shopifyFetch<T>(
 
     return { data: json.data as T, error: null };
   } catch (err) {
+    // Node.js native fetch wraps the real error in err.cause (e.g. ENOTFOUND,
+    // CERT_HAS_EXPIRED, ECONNREFUSED). Surfacing it makes "fetch failed" actionable.
+    const cause =
+      err instanceof Error && err.cause instanceof Error
+        ? `: ${err.cause.message}`
+        : '';
     return {
       data: null,
-      error: err instanceof Error ? err.message : 'Unknown network error',
+      error: err instanceof Error ? `${err.message}${cause}` : 'Unknown network error',
     };
   }
 }
