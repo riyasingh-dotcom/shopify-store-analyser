@@ -232,7 +232,7 @@ function ListCard({ card }: { card: AnalysisCardData }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span className="text-sm font-semibold text-gray-900">{card.storeDomain}</span>
-          <time className="text-xs text-gray-400">{formatDateTime(card.createdAt)}</time>
+          <time className="text-xs text-gray-400" suppressHydrationWarning>{formatDateTime(card.createdAt)}</time>
         </div>
 
         <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-gray-600">{card.summary}</p>
@@ -260,7 +260,7 @@ function GridCard({ card }: { card: AnalysisCardData }) {
         <ScoreBadge score={card.overallScore} compact />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-gray-900">{card.storeDomain}</p>
-          <time className="text-xs text-gray-400">{formatDateShort(card.createdAt)}</time>
+          <time className="text-xs text-gray-400" suppressHydrationWarning>{formatDateShort(card.createdAt)}</time>
         </div>
       </div>
 
