@@ -1,5 +1,8 @@
 services:
+  # Optional local Postgres — only starts when you explicitly use --profile local-db.
+  # By default the app reads DATABASE_URL from .env.local (your cloud DB).
   db:
+    profiles: [local-db]
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -24,13 +27,6 @@ services:
     env_file:
       - path: .env.local
         required: false
-    environment:
-      # These two override .env.local so the app talks to the db container, not an external DB
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/shopify_analyser
-      DIRECT_URL: postgresql://postgres:postgres@db:5432/shopify_analyser
-    depends_on:
-      db:
-        condition: service_healthy
 
 volumes:
   postgres_data:
