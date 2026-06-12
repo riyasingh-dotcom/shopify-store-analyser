@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { AlertCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, CheckCircle2, History } from 'lucide-react';
 import { getStoreDataCached } from '@/lib/shopify/cached';
 import { auditProduct, computeChecksHash } from '@/lib/audit/productAudit';
 import { prisma } from '@/lib/prisma';
@@ -305,7 +305,7 @@ export default async function ProductDetailPage({ params }: Props) {
     <>
       {/* ── Sticky header ─────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur-sm sm:px-6">
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <MobileMenuButton />
           <Link
             href="/products"
@@ -326,11 +326,11 @@ export default async function ProductDetailPage({ params }: Props) {
             Products
           </Link>
           <span className="text-gray-200">/</span>
-          <h1 className="max-w-45 truncate text-sm font-semibold text-gray-900 sm:max-w-xs">
+          <h1 className="min-w-0 truncate text-sm font-semibold text-gray-900">
             {product.title}
           </h1>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex shrink-0 items-center gap-2.5">
           {failedCount > 0 && (
             <span className="hidden text-xs text-gray-400 sm:block">
               {failedCount} issue{failedCount !== 1 ? 's' : ''}
@@ -338,9 +338,10 @@ export default async function ProductDetailPage({ params }: Props) {
           )}
           <Link
             href={`/products/${id}/history`}
-            className="hidden items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 sm:flex"
+            className="flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
           >
-            History
+            <History className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline">History</span>
           </Link>
           <span
             className={`rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${GRADE_PILL[audit.grade]}`}

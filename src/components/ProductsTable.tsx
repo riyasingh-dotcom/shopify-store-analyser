@@ -112,7 +112,7 @@ function Pagination({ page, totalPages, totalItems, pageSize, onPrev, onNext }: 
   const to   = Math.min((page + 1) * pageSize, totalItems);
 
   return (
-    <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
+    <div className="flex items-center justify-between border-t border-gray-100 px-4 py-4 sm:px-6">
       <p className="text-xs text-gray-500">
         Showing <span className="font-semibold text-gray-700">{from}–{to}</span> of{' '}
         <span className="font-semibold text-gray-700">{totalItems}</span> products
@@ -223,15 +223,15 @@ export default function ProductsTable({ products, audits }: ProductsTableProps) 
             <table className="w-full text-left text-sm">
               <thead className="border-b border-gray-100 bg-gray-50/70">
                 <tr>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Image</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Product</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Status</th>
+                  <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Image</th>
+                  <th className="px-2 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:px-4">Product</th>
+                  <th className="px-2 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:px-4">Status</th>
                   <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Vendor</th>
                   <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Variants</th>
                   <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Price</th>
                   <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Inventory</th>
-                  <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Score</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">View</th>
+                  <th className="px-2 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:px-4">Score</th>
+                  <th className="px-2 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:px-4">View</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -240,15 +240,15 @@ export default function ProductsTable({ products, audits }: ProductsTableProps) 
                   const numericId = extractNumericId(product.id);
                   return (
                     <tr key={product.id} className="group transition-colors hover:bg-indigo-50/30">
-                      <td className="px-4 py-3">
+                      <td className="hidden px-4 py-3 sm:table-cell">
                         <ProductThumbnail image={product.images[0]} title={product.title} />
                       </td>
-                      <td className="px-4 py-4">
-                        <span className="block max-w-[11rem] truncate font-medium text-gray-900 transition-colors group-hover:text-indigo-700">
+                      <td className="px-2 py-3 sm:px-4 sm:py-4">
+                        <span className="block max-w-28 truncate font-medium text-gray-900 transition-colors group-hover:text-indigo-700 sm:max-w-44">
                           {product.title}
                         </span>
                       </td>
-                      <td className="px-4 py-4">
+                      <td className="px-2 py-3 sm:px-4 sm:py-4">
                         <StatusBadge status={product.status} />
                       </td>
                       <td className="hidden px-4 py-4 text-gray-500 sm:table-cell">
@@ -269,14 +269,14 @@ export default function ProductsTable({ products, audits }: ProductsTableProps) 
                           <InventoryBar value={product.totalInventory} max={maxInventory} />
                         )}
                       </td>
-                      <td className="hidden px-4 py-4 sm:table-cell">
+                      <td className="px-2 py-3 sm:px-4 sm:py-4">
                         {audit ? (
                           <ScoreBadge score={audit.totalScore} grade={audit.grade} size="sm" />
                         ) : (
                           <span className="text-xs text-gray-300">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-4">
+                      <td className="px-2 py-3 sm:px-4 sm:py-4">
                         <Link
                           href={`/products/${numericId}`}
                           aria-label={`View audit for ${product.title}`}

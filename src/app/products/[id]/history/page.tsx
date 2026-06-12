@@ -160,7 +160,7 @@ export default async function ProductHistoryPage({ params }: Props) {
     <>
       {/* Sticky header */}
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur-sm sm:px-6">
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <MobileMenuButton />
           <Link
             href={`/products/${id}`}
@@ -170,11 +170,11 @@ export default async function ProductHistoryPage({ params }: Props) {
             Back to Product
           </Link>
           <span className="text-gray-200">/</span>
-          <h1 className="max-w-45 truncate text-sm font-semibold text-gray-900 sm:max-w-xs">
+          <h1 className="min-w-0 truncate text-sm font-semibold text-gray-900">
             {productTitle}
           </h1>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-gray-400">
+        <div className="flex shrink-0 items-center gap-1.5 text-xs text-gray-400">
           <Clock className="h-3.5 w-3.5" />
           {suggestions.length} suggestion{suggestions.length !== 1 ? 's' : ''}
         </div>
