@@ -2,7 +2,11 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import type { Product, ProductStatus, ProductSeo, ProductImage, MoneyV2 } from '@/types/shopify';
+import Link from 'next/link';
+import type { Product, ProductStatus, ProductImage, MoneyV2 } from '@/types/shopify';
+import type { ProductAuditResult } from '@/lib/audit/productAudit';
+import { extractNumericId } from '@/lib/shopify/utils';
+import ScoreBadge from '@/components/audit/ScoreBadge';
 
 const PAGE_SIZE = 10;
 
@@ -81,45 +85,6 @@ function InventoryBar({ value, max }: { value: number; max: number }) {
   );
 }
 
-// ── SEO status ────────────────────────────────────────────────────────────────
-
-function SeoStatus({ seo }: { seo: ProductSeo }) {
-  const hasTitle = Boolean(seo.title);
-  const hasDesc  = Boolean(seo.description);
-
-  if (hasTitle && hasDesc) {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M20 6L9 17l-5-5" />
-        </svg>
-        Complete
-      </span>
-    );
-  }
-
-  if (hasTitle || hasDesc) {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600">
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-        </svg>
-        Partial
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1 text-xs font-medium text-red-500">
-      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M15 9l-6 6M9 9l6 6" />
-      </svg>
-      Missing
-    </span>
-  );
-}
-
 // ── summary pill ──────────────────────────────────────────────────────────────
 
 function SummaryPill({ label, value, color }: { label: string; value: number; color: string }) {
@@ -193,9 +158,10 @@ function Pagination({ page, totalPages, totalItems, pageSize, onPrev, onNext }: 
 
 interface ProductsTableProps {
   products: Product[];
+  audits: Record<string, ProductAuditResult>;
 }
 
-export default function ProductsTable({ products }: ProductsTableProps) {
+export default function ProductsTable({ products, audits }: ProductsTableProps) {
   const [page, setPage] = useState(0);
 
   const totalPages   = Math.max(1, Math.ceil(products.length / PAGE_SIZE));
@@ -205,8 +171,14 @@ export default function ProductsTable({ products }: ProductsTableProps) {
   const active   = products.filter((p) => p.status === 'ACTIVE').length;
   const draft    = products.filter((p) => p.status === 'DRAFT').length;
   const archived = products.filter((p) => p.status === 'ARCHIVED').length;
-  const noSeo    = products.filter((p) => !p.seo.title && !p.seo.description).length;
   const lowStock = products.filter((p) => p.totalInventory > 0 && p.totalInventory < 10).length;
+
+  const needsAttention = Object.values(audits).filter(
+    (a) => a.grade === 'D' || a.grade === 'F',
+  ).length;
+  const goodProducts = Object.values(audits).filter(
+    (a) => a.grade === 'A' || a.grade === 'B',
+  ).length;
 
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -215,17 +187,22 @@ export default function ProductsTable({ products }: ProductsTableProps) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Products</h2>
-            <p className="mt-0.5 text-xs text-gray-500">{products.length} products in your store</p>
+            <p className="mt-0.5 text-xs text-gray-500">
+              {products.length} products · sorted by audit score (worst first)
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <SummaryPill label="Active"    value={active}   color="bg-emerald-50 text-emerald-700" />
             <SummaryPill label="Draft"     value={draft}    color="bg-gray-100 text-gray-600" />
             <SummaryPill label="Archived"  value={archived} color="bg-red-50 text-red-600" />
-            {noSeo > 0 && (
-              <SummaryPill label="No SEO"    value={noSeo}    color="bg-amber-50 text-amber-700" />
+            {goodProducts > 0 && (
+              <SummaryPill label="Good (A/B)"      value={goodProducts}    color="bg-blue-50 text-blue-700" />
+            )}
+            {needsAttention > 0 && (
+              <SummaryPill label="Needs attention" value={needsAttention}  color="bg-orange-50 text-orange-700" />
             )}
             {lowStock > 0 && (
-              <SummaryPill label="Low stock" value={lowStock} color="bg-orange-50 text-orange-600" />
+              <SummaryPill label="Low stock" value={lowStock} color="bg-amber-50 text-amber-700" />
             )}
           </div>
         </div>
@@ -253,56 +230,64 @@ export default function ProductsTable({ products }: ProductsTableProps) {
                   <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Variants</th>
                   <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Price</th>
                   <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Inventory</th>
-                  <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">SEO</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Optimise</th>
+                  <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Score</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">View</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {visibleRows.map((product) => (
-                  <tr key={product.id} className="group transition-colors hover:bg-indigo-50/30">
-                    <td className="px-4 py-3">
-                      <ProductThumbnail image={product.images[0]} title={product.title} />
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className="block max-w-[11rem] truncate font-medium text-gray-900 transition-colors group-hover:text-indigo-700">
-                        {product.title}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <StatusBadge status={product.status} />
-                    </td>
-                    <td className="hidden px-4 py-4 text-gray-500 sm:table-cell">
-                      {product.vendor || <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="hidden px-4 py-4 sm:table-cell">
-                      <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-                        {product.variants.length}
-                      </span>
-                    </td>
-                    <td className="hidden px-4 py-4 font-medium text-gray-700 sm:table-cell">
-                      {formatPriceRange(product)}
-                    </td>
-                    <td className="hidden px-4 py-4 sm:table-cell">
-                      {product.status === 'ARCHIVED' ? (
-                        <span className="text-xs text-gray-300">—</span>
-                      ) : (
-                        <InventoryBar value={product.totalInventory} max={maxInventory} />
-                      )}
-                    </td>
-                    <td className="hidden px-4 py-4 sm:table-cell">
-                      <SeoStatus seo={product.seo} />
-                    </td>
-                    <td className="px-4 py-4">
-                      <button
-                        type="button"
-                        aria-label={`Optimise SEO for ${product.title}`}
-                        className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-100"
-                      >
-                        Optimise
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {visibleRows.map((product) => {
+                  const audit = audits[product.id];
+                  const numericId = extractNumericId(product.id);
+                  return (
+                    <tr key={product.id} className="group transition-colors hover:bg-indigo-50/30">
+                      <td className="px-4 py-3">
+                        <ProductThumbnail image={product.images[0]} title={product.title} />
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className="block max-w-[11rem] truncate font-medium text-gray-900 transition-colors group-hover:text-indigo-700">
+                          {product.title}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">
+                        <StatusBadge status={product.status} />
+                      </td>
+                      <td className="hidden px-4 py-4 text-gray-500 sm:table-cell">
+                        {product.vendor || <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="hidden px-4 py-4 sm:table-cell">
+                        <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                          {product.variants.length}
+                        </span>
+                      </td>
+                      <td className="hidden px-4 py-4 font-medium text-gray-700 sm:table-cell">
+                        {formatPriceRange(product)}
+                      </td>
+                      <td className="hidden px-4 py-4 sm:table-cell">
+                        {product.status === 'ARCHIVED' ? (
+                          <span className="text-xs text-gray-300">—</span>
+                        ) : (
+                          <InventoryBar value={product.totalInventory} max={maxInventory} />
+                        )}
+                      </td>
+                      <td className="hidden px-4 py-4 sm:table-cell">
+                        {audit ? (
+                          <ScoreBadge score={audit.totalScore} grade={audit.grade} size="sm" />
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4">
+                        <Link
+                          href={`/products/${numericId}`}
+                          aria-label={`View audit for ${product.title}`}
+                          className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-100"
+                        >
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
