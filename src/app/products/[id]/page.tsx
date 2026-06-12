@@ -3,7 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { AlertCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { getStoreDataCached } from '@/lib/shopify/cached';
-import { auditProduct } from '@/lib/audit/productAudit';
+import { auditProduct, computeChecksHash } from '@/lib/audit/productAudit';
 import { prisma } from '@/lib/prisma';
 import type { ProductAuditCheck, AuditGrade } from '@/lib/audit/productAudit';
 import { extractNumericId } from '@/lib/shopify/utils';
@@ -216,18 +216,39 @@ export default async function ProductDetailPage({ params }: Props) {
   if (!product) notFound();
 
   const audit = auditProduct(product);
+  const checksHash = computeChecksHash(audit.checks);
 
+  // Find-or-create: only write a new ProductAuditLog row when the audit result
+  // has actually changed. Two results are considered identical when their
+  // checksHash matches — same pass/fail on every check means same issues,
+  // same score, same grade. On a repeat page view with no product edits this
+  // read returns a match and the write is skipped entirely.
+  let auditLogId: string | null = null;
   try {
-    await prisma.productAuditLog.create({
-      data: {
-        productId: product.id,
-        productTitle: product.title,
-        totalScore: audit.totalScore,
-        grade: audit.grade,
-        checksJson: audit.checks,
-        storeDomain: process.env.SHOPIFY_STORE_DOMAIN ?? 'unknown',
-      },
+    const latest = await prisma.productAuditLog.findFirst({
+      where: { productId: product.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, checksHash: true },
     });
+
+    if (latest !== null && latest.checksHash === checksHash) {
+      // Audit unchanged — reuse the existing record.
+      auditLogId = latest.id;
+    } else {
+      // First visit, or audit composition changed — write a new record.
+      const newLog = await prisma.productAuditLog.create({
+        data: {
+          productId: product.id,
+          productTitle: product.title,
+          totalScore: audit.totalScore,
+          grade: audit.grade,
+          checksJson: audit.checks,
+          checksHash,
+          storeDomain: process.env.SHOPIFY_STORE_DOMAIN ?? 'unknown',
+        },
+      });
+      auditLogId = newLog.id;
+    }
   } catch (err) {
     console.error('[ProductDetailPage] Failed to save audit log:', err);
   }
@@ -236,6 +257,16 @@ export default async function ProductDetailPage({ params }: Props) {
     .findFirst({
       where: { productId: { endsWith: `/${id}` } },
       orderBy: { createdAt: 'desc' },
+      select: {
+        improvedTitle: true,
+        improvedDescription: true,
+        improvedDescriptionHtml: true,
+        improvedSeoTitle: true,
+        improvedSeoDescription: true,
+        suggestedTags: true,
+        reasoning: true,
+        expectedScore: true,
+      },
     })
     .catch(() => null);
 
@@ -243,8 +274,6 @@ export default async function ProductDetailPage({ params }: Props) {
     ? {
         improvedTitle: latestSuggestionRow.improvedTitle,
         improvedDescription: latestSuggestionRow.improvedDescription,
-        // Rows saved before the schema migration have null here — fall back to
-        // plain text wrapped in a paragraph so the description tab renders.
         improvedDescriptionHtml:
           latestSuggestionRow.improvedDescriptionHtml ??
           `<p>${latestSuggestionRow.improvedDescription}</p>`,
@@ -256,6 +285,8 @@ export default async function ProductDetailPage({ params }: Props) {
         reasoning: latestSuggestionRow.reasoning,
       }
     : null;
+
+  const savedExpectedScore = latestSuggestionRow?.expectedScore ?? null;
 
   const featuredImage = product.images[0];
   const minP = product.priceRangeV2.minVariantPrice;
@@ -385,7 +416,13 @@ export default async function ProductDetailPage({ params }: Props) {
           {/* Left: issues + AI (2 of 3 cols) */}
           <div className="space-y-6 lg:col-span-2">
             <TopIssuesCard checks={audit.checks} />
-            <ProductSuggestions product={product} auditResult={audit} savedSuggestion={savedSuggestion} />
+            <ProductSuggestions
+              product={product}
+              auditResult={audit}
+              savedSuggestion={savedSuggestion}
+              savedExpectedScore={savedExpectedScore}
+              auditLogId={auditLogId}
+            />
           </div>
 
           {/* Right: audit breakdown */}

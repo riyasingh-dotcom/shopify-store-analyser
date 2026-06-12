@@ -3,6 +3,7 @@ import type { Stream } from 'openai/streaming';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Product } from '@/types/shopify';
 import type { ProductAuditResult, ProductAuditCheck } from '@/lib/audit/productAudit';
+import { auditProduct, type AuditCategory } from '@/lib/audit/productAudit';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -11,16 +12,14 @@ export const dynamic = 'force-dynamic';
 // Types
 // ---------------------------------------------------------------------------
 
-// The existing Product type is already flat (variants/images are arrays, not
-// GQL connections) — FlatProduct is a semantic alias, not a structural change.
 type FlatProduct = Product;
 
 type SuggestRequestBody = {
   product: FlatProduct;
   auditResult: ProductAuditResult;
+  auditLogId?: string | null;
 };
 
-// Shape Claude must return — streamed as a single JSON object.
 export type ProductSuggestion = {
   improvedTitle: string;
   improvedDescription: string;
@@ -32,37 +31,8 @@ export type ProductSuggestion = {
 };
 
 // ---------------------------------------------------------------------------
-// Prompts
+// Prompt helpers
 // ---------------------------------------------------------------------------
-
-// DESIGN INTENT — why the system prompt is phrased this way:
-//
-// The original prompt said "only suggest changes when there is a meaningful
-// improvement" — too vague. LLMs interpret "meaningful improvement" liberally
-// and almost always find something to "improve," rewriting perfectly good copy.
-//
-// The fix: make the DEFAULT behaviour PRESERVATION, not generation.
-// Generation is the exception that requires explicit audit evidence to trigger.
-// Each instruction in the user prompt must name a specific failing check ID
-// before the model is permitted to change that field.
-
-const SYSTEM_PROMPT = [
-  'You are a Shopify product copy auditor. Your only job is to fix explicit audit failures.',
-  '',
-  'PRIME DIRECTIVE — read before doing anything else:',
-  '  • If a field has NO failing audit checks, return its EXACT original value — character for character.',
-  '  • Do NOT rephrase, modernise, reorder, or "enhance" content that already passes.',
-  '  • Do NOT change brand names, product names, or trademarks under any circumstances.',
-  '  • When a field HAS failures, make the MINIMUM change that fixes those specific checks.',
-  '  • Do NOT invent product features, materials, or claims absent from the original.',
-  '  • "Sounds better to me" is not a reason to change anything. Audit pass = hands off.',
-  '',
-  'Output: one minified JSON object. No markdown, no fences, no commentary.',
-  'Required keys: improvedTitle, improvedDescription, improvedDescriptionHtml,',
-  '               improvedSeoTitle, improvedSeoDescription, suggestedTags, reasoning.',
-].join('\n');
-
-// ── Prompt helpers ─────────────────────────────────────────────────────────────
 
 function stripHtmlForPrompt(html: string): string {
   return html
@@ -71,12 +41,16 @@ function stripHtmlForPrompt(html: string): string {
     .trim();
 }
 
-// Returns a structured block that either locks a field ("RETURN UNCHANGED")
-// or lists exact failing checks the model must fix ("FIX THESE FAILURES").
-//
-// Including the current value verbatim in the "unchanged" directive is
-// intentional: it removes any guess-work and forces the model to copy-paste
-// rather than paraphrase.
+// Checks in these categories can be fixed by rewriting copy.
+// meta-tags is the only metadata check the AI can influence.
+const COPY_FIXABLE_CATEGORIES = new Set<AuditCategory>(['title', 'description', 'seo']);
+
+function isCopyFixable(check: ProductAuditCheck): boolean {
+  return COPY_FIXABLE_CATEGORIES.has(check.category) || check.id === 'meta-tags';
+}
+
+// Returns a per-field block that either locks a field ("RETURN UNCHANGED") or
+// lists exact failing checks the model must fix ("FIX THESE FAILURES").
 function fieldDirective(
   fieldName: string,
   failedChecks: ProductAuditCheck[],
@@ -92,91 +66,137 @@ function fieldDirective(
   }
 
   const checkLines = failedChecks
-    .map((c) => `    • ${c.label}${c.suggestion ? ' — ' + c.suggestion : ''}`)
+    .map((c) => `    • ${c.label} (−${c.maxScore} pts)${c.suggestion ? ' — ' + c.suggestion : ''}`)
     .join('\n');
 
   return [
     `[${fieldName}] ${scoreLabel} — ${failedChecks.length} FAILURE${failedChecks.length > 1 ? 'S' : ''}`,
-    'Fix ONLY these checks:',
+    'Fix EVERY check listed below:',
     checkLines,
     `→ ${fixInstruction}`,
   ].join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// System prompt
+// ---------------------------------------------------------------------------
+
+const SYSTEM_PROMPT = [
+  'You are a Shopify product copy optimizer. Your ONLY GOAL is to maximize the product audit score.',
+  '',
+  'RULES — read before doing anything:',
+  '  1. Fields with failing checks → rewrite to FIX EVERY failing check listed for that field.',
+  '  2. Fields with ALL checks passing → return the EXACT original value, character for character.',
+  '  3. Do NOT invent product features, materials, or claims absent from the original.',
+  '  4. Do NOT change brand names, trademarks, or the core product name.',
+  '  5. improvedDescriptionHtml must use <p> tags, no inline styles.',
+  '  6. suggestedTags must contain at least 5 tags.',
+  '',
+  'Output: one minified JSON object on a single line. No markdown, no code fences, no commentary.',
+  'Required keys: improvedTitle, improvedDescription, improvedDescriptionHtml,',
+  '               improvedSeoTitle, improvedSeoDescription, suggestedTags, reasoning.',
+].join('\n');
+
+// ---------------------------------------------------------------------------
+// User prompt builder
+// ---------------------------------------------------------------------------
+
 function buildUserPrompt(product: FlatProduct, auditResult: ProductAuditResult): string {
   const plainDesc = stripHtmlForPrompt(product.descriptionHtml);
-  const { categoryScores, checks } = auditResult;
+  const { categoryScores, checks, totalScore, grade } = auditResult;
 
-  // Index failed checks by category for O(1) lookups below.
+  const failedChecks = checks.filter((c) => !c.passed);
+
+  // Separate what the AI can fix vs. what requires manual Shopify Admin action.
+  const fixable = [...failedChecks.filter(isCopyFixable)].sort((a, b) => b.maxScore - a.maxScore);
+  const manualOnly = [...failedChecks.filter((c) => !isCopyFixable(c))].sort(
+    (a, b) => b.maxScore - a.maxScore,
+  );
+
+  const fixablePoints = fixable.reduce((sum, c) => sum + c.maxScore, 0);
+  const targetScore = totalScore + fixablePoints;
+
+  // Index per-category for per-field directives.
   const failedByCategory: Record<string, ProductAuditCheck[]> = {};
-  for (const c of checks) {
-    if (!c.passed) {
-      (failedByCategory[c.category] ??= []).push(c);
-    }
+  for (const c of failedChecks) {
+    (failedByCategory[c.category] ??= []).push(c);
   }
 
   const titleFailed = failedByCategory['title'] ?? [];
   const descFailed = failedByCategory['description'] ?? [];
   const seoFailed = failedByCategory['seo'] ?? [];
-
-  // SEO title and description are distinct fields — split their failures so the
-  // model gets a per-field directive rather than a combined "fix SEO" instruction.
   const seoTitleFailed = seoFailed.filter((c) => c.id.startsWith('seo-title'));
   const seoDescFailed = seoFailed.filter((c) => c.id.startsWith('seo-desc'));
-
-  // Tags come from the metadata category but only the meta-tags check matters here.
   const tagsCheck = checks.find((c) => c.id === 'meta-tags');
   const tagsFailed = tagsCheck && !tagsCheck.passed ? [tagsCheck] : [];
 
-  const score = (cat: 'title' | 'description' | 'seo') =>
-    `${categoryScores[cat].score}/${categoryScores[cat].maxScore} pts`;
+  const catScore = (cat: 'title' | 'description' | 'seo') =>
+    `${categoryScores[cat].score}/${categoryScores[cat].maxScore}`;
 
-  // Build per-field directives. The "unchanged" value is echoed literally so
-  // the model can copy it without interpreting it.
   const directives = [
     fieldDirective(
       'improvedTitle',
       titleFailed,
-      `title ${score('title')}`,
+      `title ${catScore('title')}`,
       `"${product.title}"`,
-      'Fix the failing checks above. Keep the same product name and keywords — do not rename the product.',
+      'Rewrite to pass ALL checks: 20–70 characters, no generic prefix (New/Best/Buy/Cheap/Top), at least 2 words with a descriptor, no ALL CAPS. Keep the core product name.',
     ),
 
     fieldDirective(
       'improvedDescription + improvedDescriptionHtml',
       descFailed,
-      `description ${score('description')}`,
+      `description ${catScore('description')}`,
       `plain="${plainDesc || '(empty)'}" html="${product.descriptionHtml || '(empty)'}"`,
-      'Rewrite to fix the failing checks only. Preserve all factual product details. ' +
-      'improvedDescriptionHtml must use <p> tags; no inline styles.',
+      'Rewrite to pass ALL checks: 300+ characters, 2+ <p> paragraphs, no placeholder text. Preserve all factual product details.',
     ),
 
     fieldDirective(
       'improvedSeoTitle',
       seoTitleFailed,
-      `seo-title ${categoryScores['seo'].score}/${categoryScores['seo'].maxScore} pts`,
-      product.seo.title ? `"${product.seo.title}"` : '"" (empty — not set)',
-      'Create/fix an SEO title that is 30–60 characters.',
+      `seo-title ${catScore('seo')}`,
+      product.seo.title ? `"${product.seo.title}"` : '"" (not set)',
+      `Write an SEO title that is EXACTLY 30–60 characters. Current: ${product.seo.title?.length ?? 0} chars.`,
     ),
 
     fieldDirective(
       'improvedSeoDescription',
       seoDescFailed,
-      `seo-desc ${categoryScores['seo'].score}/${categoryScores['seo'].maxScore} pts`,
-      product.seo.description ? `"${product.seo.description}"` : '"" (empty — not set)',
-      'Create/fix an SEO description that is 120–160 characters.',
+      `seo-desc ${catScore('seo')}`,
+      product.seo.description ? `"${product.seo.description}"` : '"" (not set)',
+      `Write an SEO description that is EXACTLY 120–160 characters. Current: ${product.seo.description?.length ?? 0} chars.`,
     ),
 
     fieldDirective(
       'suggestedTags',
       tagsFailed,
-      `tags ${categoryScores['metadata'].score}/${categoryScores['metadata'].maxScore} pts`,
+      `tags ${categoryScores['metadata'].score}/${categoryScores['metadata'].maxScore}`,
       `[${product.tags.map((t) => `"${t}"`).join(', ')}]`,
       `Suggest 5–10 relevant lowercase tags. Preserve useful existing tags: [${product.tags.join(', ')}].`,
     ),
   ].join('\n\n');
 
-  return `Product data:
+  // Build upfront failure summary so the model sees the full picture before
+  // reading per-field directives.
+  const fixableSummary =
+    fixable.length > 0
+      ? [
+          `FIXABLE FAILURES — fixing these gains ${fixablePoints} pts → raises score to ${targetScore}/100:`,
+          ...fixable.map(
+            (c) =>
+              `  • [${c.category.toUpperCase()}] ${c.label} — −${c.maxScore} pts${c.suggestion ? ' → ' + c.suggestion : ''}`,
+          ),
+        ].join('\n')
+      : 'No fixable copy failures — all copy fields pass.';
+
+  const manualSummary =
+    manualOnly.length > 0
+      ? [
+          'MANUAL-ONLY (require Shopify Admin action — do NOT attempt to fix via copy):',
+          ...manualOnly.map((c) => `  • [${c.category.toUpperCase()}] ${c.label} — −${c.maxScore} pts`),
+        ].join('\n')
+      : '';
+
+  return `PRODUCT:
 Title: "${product.title}"
 Description (plain): ${plainDesc || '(empty)'}
 Description (HTML): ${product.descriptionHtml || '(empty)'}
@@ -184,18 +204,38 @@ SEO Title: ${product.seo.title ? `"${product.seo.title}"` : '(not set)'}
 SEO Description: ${product.seo.description ? `"${product.seo.description}"` : '(not set)'}
 Vendor: ${product.vendor || '(not set)'}
 Product Type: ${product.productType || '(not set)'}
-Current Tags: [${product.tags.map((t) => `"${t}"`).join(', ')}]
-Overall Score: ${auditResult.totalScore}/100 (Grade: ${auditResult.grade})
+Tags: [${product.tags.map((t) => `"${t}"`).join(', ')}]
 
-Per-field audit directives — follow exactly:
+AUDIT SCORE: ${totalScore}/100 — Grade: ${grade}
+${fixableSummary}${manualSummary ? '\n' + manualSummary : ''}
+
+PER-FIELD DIRECTIVES — follow exactly:
 ${directives}
 
-reasoning: one short paragraph stating what was changed and why. If most fields are unchanged, say so explicitly.`
-;
+reasoning: One paragraph stating which checks were fixed, estimated score gain from ${totalScore} toward ${targetScore}/100, and which issues require manual Shopify Admin action.`;
 }
 
 // ---------------------------------------------------------------------------
-// Groq helper — retries on rate-limit (429) and server errors (5xx)
+// Expected score — re-run audit against the projected (suggested) product
+// ---------------------------------------------------------------------------
+
+function computeExpectedScore(product: FlatProduct, suggestion: ProductSuggestion): number {
+  const projected: FlatProduct = {
+    ...product,
+    title: suggestion.improvedTitle,
+    descriptionHtml:
+      suggestion.improvedDescriptionHtml || `<p>${suggestion.improvedDescription}</p>`,
+    seo: {
+      title: suggestion.improvedSeoTitle.trim() || null,
+      description: suggestion.improvedSeoDescription.trim() || null,
+    },
+    tags: suggestion.suggestedTags,
+  };
+  return auditProduct(projected).totalScore;
+}
+
+// ---------------------------------------------------------------------------
+// Groq helper — retries on 429 and 5xx
 // ---------------------------------------------------------------------------
 
 async function createGroqStream(
@@ -214,10 +254,8 @@ async function createGroqStream(
           { role: 'system' as const, content: systemPrompt },
           { role: 'user' as const, content: userContent },
         ],
-        // Enough headroom for a full JSON suggestion including HTML description.
-        max_tokens: 1024,
+        max_tokens: 2048,
         stream: true as const,
-        // Reduce hallucination on structured JSON output.
         temperature: 0.3,
       });
     } catch (err: unknown) {
@@ -228,7 +266,7 @@ async function createGroqStream(
         (httpStatus === 429 || (typeof httpStatus === 'number' && httpStatus >= 500));
 
       if (isRetryable) {
-        const delay = 600 * 2 ** attempt; // 600ms → 1200ms
+        const delay = 600 * 2 ** attempt;
         console.warn(
           `[/api/products/suggest] Groq attempt ${attempt + 1} failed (${httpStatus}), retrying in ${delay}ms`,
         );
@@ -243,9 +281,7 @@ async function createGroqStream(
 }
 
 // ---------------------------------------------------------------------------
-// JSON sanitiser — LLMs sometimes emit literal control characters (0x00–0x1F)
-// inside string values instead of the required JSON escape sequences.
-// This pass converts them without disturbing already-escaped sequences.
+// JSON sanitiser — fixes bare control characters in LLM output
 // ---------------------------------------------------------------------------
 
 function sanitiseRawJson(raw: string): string {
@@ -254,12 +290,9 @@ function sanitiseRawJson(raw: string): string {
   while (i < raw.length) {
     const ch = raw[i];
     if (ch === '\\') {
-      // Copy the escape sequence as-is — don't re-escape the next character.
       out += ch + (raw[i + 1] ?? '');
       i += 2;
     } else if (ch.charCodeAt(0) < 0x20) {
-      // Bare control character inside a string value — replace with the
-      // standard JSON escape so JSON.parse accepts it.
       switch (ch) {
         case '\n': out += '\\n'; break;
         case '\r': out += '\\r'; break;
@@ -277,7 +310,7 @@ function sanitiseRawJson(raw: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Type guard for the completed suggestion (used for DB persistence)
+// Type guard
 // ---------------------------------------------------------------------------
 
 function isProductSuggestion(v: unknown): v is ProductSuggestion {
@@ -296,7 +329,7 @@ function isProductSuggestion(v: unknown): v is ProductSuggestion {
 }
 
 // ---------------------------------------------------------------------------
-// Input validation — no Zod, narrow manually to avoid any assertions
+// Input validation
 // ---------------------------------------------------------------------------
 
 function isValidBody(raw: unknown): raw is SuggestRequestBody {
@@ -331,8 +364,6 @@ function isValidBody(raw: unknown): raw is SuggestRequestBody {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request): Promise<Response> {
-  // CSRF guard — browsers enforce CORS preflight for custom headers, so
-  // cross-origin callers cannot inject this header without server permission.
   if (request.headers.get('x-requested-with') !== 'XMLHttpRequest') {
     return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
@@ -342,7 +373,6 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'GROQ_API_KEY not configured' }, { status: 503 });
   }
 
-  // Parse and validate the request body.
   let rawBody: unknown;
   try {
     rawBody = await request.json();
@@ -357,7 +387,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const { product, auditResult } = rawBody;
+  const { product, auditResult, auditLogId } = rawBody;
 
   const client = new OpenAI({
     baseURL: 'https://api.groq.com/openai/v1',
@@ -379,19 +409,17 @@ export async function POST(request: Request): Promise<Response> {
 
   const encoder = new TextEncoder();
 
-  // Stream tokens as SSE events so the client can render progressive output.
-  // IMPORTANT: the DB save must happen BEFORE emit('[DONE]') and controller.close().
-  // Next.js does not await the remainder of ReadableStream.start() after
-  // controller.close() — any async work after that point is silently dropped.
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
-      function emit(data: string): void {
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+      // Emits a plain data event (no event type) or a named SSE event.
+      function emit(data: string, eventType?: string): void {
+        const prefix = eventType ? `event: ${eventType}\n` : '';
+        controller.enqueue(encoder.encode(`${prefix}data: ${data}\n\n`));
       }
 
       let fullContent = '';
 
-      // ── 1. Stream all Groq tokens to the client ──────────────────────────
+      // ── 1. Stream Groq tokens to the client ─────────────────────────────
       try {
         for await (const chunk of groqStream) {
           const token = chunk.choices[0]?.delta?.content;
@@ -407,15 +435,17 @@ export async function POST(request: Request): Promise<Response> {
         return;
       }
 
-      // ── 2. Persist to DB (stream still open — Next.js hasn't closed the ──
-      //       request context yet, so this await is guaranteed to complete)  ──
-      console.log('[suggest] fullContent length:', fullContent.length, '| productId:', product.id);
+      // ── 2. Parse, re-audit, and persist ─────────────────────────────────
+      // All DB work and the score event MUST happen before emit('[DONE]') and
+      // controller.close() — Next.js drops async work after close().
       try {
         const parsed: unknown = JSON.parse(sanitiseRawJson(fullContent.trim()));
         const valid = isProductSuggestion(parsed);
-        console.log('[suggest] isProductSuggestion:', valid);
+
         if (valid) {
-          const row = await prisma.productSuggestion.create({
+          const expectedScore = computeExpectedScore(product, parsed);
+
+          await prisma.productSuggestion.create({
             data: {
               productId: product.id,
               productTitle: product.title,
@@ -431,18 +461,25 @@ export async function POST(request: Request): Promise<Response> {
               suggestedTags: parsed.suggestedTags,
               reasoning: parsed.reasoning,
               auditScore: auditResult.totalScore,
+              expectedScore,
+              auditLogId: typeof auditLogId === 'string' ? auditLogId : null,
               storeDomain: process.env.SHOPIFY_STORE_DOMAIN ?? 'unknown',
             },
           });
-          console.log('[suggest] saved row id:', row.id, '| productId stored:', row.productId);
+
+          // Send the before/after score so the client can show the improvement.
+          emit(
+            JSON.stringify({ current: auditResult.totalScore, expected: expectedScore }),
+            'score',
+          );
         } else {
-          console.warn('[suggest] isProductSuggestion failed — keys present:', Object.keys(parsed as object));
+          console.warn('[suggest] isProductSuggestion failed — keys:', Object.keys(parsed as object));
         }
       } catch (err) {
-        console.error('[suggest] DB save failed:', err);
+        console.error('[suggest] DB save / re-audit failed:', err);
       }
 
-      // ── 3. Signal completion — client unblocks only after DB is written ──
+      // ── 3. Signal completion ─────────────────────────────────────────────
       emit('[DONE]');
       controller.close();
     },
@@ -455,11 +492,7 @@ export async function POST(request: Request): Promise<Response> {
     headers: {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-store',
-      // Disable nginx/proxy response buffering so tokens reach the client
-      // immediately rather than being held until the buffer fills.
       'X-Accel-Buffering': 'no',
-      // Keep the connection alive — long-running Groq requests can exceed
-      // default proxy timeouts on Vercel's edge network.
       Connection: 'keep-alive',
     },
   });

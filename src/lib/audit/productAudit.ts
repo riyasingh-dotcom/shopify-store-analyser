@@ -100,6 +100,13 @@ function gradeFromScore(score: number): AuditGrade {
 
 // ── public API ─────────────────────────────────────────────────────────────────
 
+// Produces a stable string representing the pass/fail state of every check.
+// Two audit results with the same hash are functionally identical — no new DB
+// row is needed. Using check IDs + boolean keeps this dependency-free and fast.
+export function computeChecksHash(checks: ProductAuditCheck[]): string {
+  return checks.map((c) => `${c.id}:${c.passed ? 1 : 0}`).join(',');
+}
+
 export function auditProduct(product: Product): ProductAuditResult {
   const { title, descriptionHtml, seo, images, tags, vendor, productType } = product;
 
