@@ -1,11 +1,21 @@
 import { getStoreDataCached } from '@/lib/shopify/cached';
 import MobileMenuButton from '@/components/MobileMenuButton';
 import ProductsTable from '@/components/ProductsTable';
+import { auditProduct } from '@/lib/audit/productAudit';
+import type { ProductAuditResult } from '@/lib/audit/productAudit';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ProductsPage() {
   const { shop, products, isMockData } = await getStoreDataCached();
+
+  const audits: Record<string, ProductAuditResult> = Object.fromEntries(
+    products.map((p) => [p.id, auditProduct(p)]),
+  );
+
+  const sorted = [...products].sort(
+    (a, b) => (audits[a.id]?.totalScore ?? 0) - (audits[b.id]?.totalScore ?? 0),
+  );
 
   return (
     <>
@@ -17,15 +27,21 @@ export default async function ProductsPage() {
             <p className="hidden text-xs text-gray-400 sm:block">{products.length} products</p>
           </div>
         </div>
-        <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium sm:px-3 ${isMockData ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-700'}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${isMockData ? 'bg-amber-400' : 'bg-emerald-500'}`} />
+        <div
+          className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium sm:px-3 ${
+            isMockData ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-700'
+          }`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${isMockData ? 'bg-amber-400' : 'bg-emerald-500'}`}
+          />
           {isMockData ? 'Demo' : 'Live'}
           <span className="hidden sm:inline">{isMockData ? ' mode' : ' data'}</span>
         </div>
       </header>
 
       <main className="flex-1 p-4 sm:p-6">
-        <ProductsTable products={products} />
+        <ProductsTable products={sorted} audits={audits} />
       </main>
 
       <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6">
