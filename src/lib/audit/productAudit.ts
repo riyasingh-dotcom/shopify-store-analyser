@@ -34,22 +34,49 @@ const PLACEHOLDER_PHRASES = [
   'add description here',
 ];
 
+// Decode common HTML entities so &nbsp; chains don't inflate character counts.
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
+// Counts paragraph-like blocks without relying on \n\n (which stripHtml destroys).
+// Handles </p>, double-<br> (common in Shopify rich-text editors), and bare text.
 function countParagraphs(html: string): number {
   const closingPs = (html.match(/<\/p>/gi) ?? []).length;
   if (closingPs > 0) return closingPs;
-  const text = stripHtml(html);
-  if (!text) return 0;
-  return text.split(/\n\n+/).filter(Boolean).length;
+
+  const doubleBrs = (html.match(/<br\s*\/?>\s*<br\s*\/?>/gi) ?? []).length;
+  if (doubleBrs > 0) return doubleBrs + 1;
+
+  return stripHtml(html).length > 0 ? 1 : 0;
 }
 
+// Unicode-aware: toUpperCase() handles accented chars (CAFÉ, ÜBER).
+// The \p{L} guard prevents purely numeric/symbolic tokens from being flagged.
 function hasAllCapsWord(text: string): boolean {
   return text.split(/\s+/).some(
-    (word) => word.length > 1 && /^[A-Z]+$/.test(word),
+    (word) =>
+      word.length > 1 &&
+      word === word.toUpperCase() &&
+      /\p{L}/u.test(word),
   );
+}
+
+// Trim a nullable string field; returns null when absent or whitespace-only.
+function normStr(value: string | null | undefined): string | null {
+  const t = value?.trim();
+  return t ? t : null;
 }
 
 function makeCheck(
@@ -78,8 +105,15 @@ export function auditProduct(product: Product): ProductAuditResult {
 
   const plainDesc = stripHtml(descriptionHtml);
   const titleLower = title.toLowerCase();
-  const seoTitleLen = seo.title?.length ?? 0;
-  const seoDescLen = seo.description?.length ?? 0;
+
+  // Trim SEO fields — whitespace-only strings must not pass boolean / length checks.
+  const seoTitle = normStr(seo.title);
+  const seoDesc = normStr(seo.description);
+  const seoTitleLen = seoTitle?.length ?? 0;
+  const seoDescLen = seoDesc?.length ?? 0;
+
+  // Filter empty-string tags so ["", ""] doesn't satisfy the 2-tag requirement.
+  const realTags = tags.filter((t) => t.trim().length > 0);
 
   const checks: ProductAuditCheck[] = [
     // ── Title (25 pts) ─────────────────────────────────────────────────────────
@@ -155,7 +189,7 @@ export function auditProduct(product: Product): ProductAuditResult {
       'seo-title-exists',
       'seo',
       'SEO title is set',
-      Boolean(seo.title),
+      Boolean(seoTitle),
       5,
       'Add a custom SEO title to control how your product appears in search results.',
     ),
@@ -163,15 +197,17 @@ export function auditProduct(product: Product): ProductAuditResult {
       'seo-title-length',
       'seo',
       'SEO title 30–60 characters',
-      Boolean(seo.title) && seoTitleLen >= 30 && seoTitleLen <= 60,
+      Boolean(seoTitle) && seoTitleLen >= 30 && seoTitleLen <= 60,
       10,
-      `SEO title is ${seoTitleLen} characters. Aim for 30–60 to avoid truncation in search results.`,
+      seoTitle !== null
+        ? `SEO title is ${seoTitleLen} characters. Aim for 30–60 to avoid truncation in search results.`
+        : 'Set an SEO title first, then ensure it is 30–60 characters.',
     ),
     makeCheck(
       'seo-desc-exists',
       'seo',
       'SEO description is set',
-      Boolean(seo.description),
+      Boolean(seoDesc),
       5,
       'Add a meta description to improve click-through rates from search results.',
     ),
@@ -179,9 +215,11 @@ export function auditProduct(product: Product): ProductAuditResult {
       'seo-desc-length',
       'seo',
       'SEO description 120–160 characters',
-      Boolean(seo.description) && seoDescLen >= 120 && seoDescLen <= 160,
+      Boolean(seoDesc) && seoDescLen >= 120 && seoDescLen <= 160,
       5,
-      `SEO description is ${seoDescLen} characters. Aim for 120–160 to avoid truncation.`,
+      seoDesc !== null
+        ? `SEO description is ${seoDescLen} characters. Aim for 120–160 to avoid truncation.`
+        : 'Set an SEO description first, then ensure it is 120–160 characters.',
     ),
 
     // ── Media (15 pts) ─────────────────────────────────────────────────────────
@@ -197,7 +235,7 @@ export function auditProduct(product: Product): ProductAuditResult {
       'media-alt-text',
       'media',
       'Featured image has alt text',
-      Boolean(images[0]?.altText),
+      Boolean(images[0]?.altText?.trim()),
       7,
       'Add descriptive alt text to the featured image to improve accessibility and image SEO.',
     ),
@@ -207,15 +245,15 @@ export function auditProduct(product: Product): ProductAuditResult {
       'meta-tags',
       'metadata',
       'Has 2 or more tags',
-      tags.length >= 2,
+      realTags.length >= 2,
       4,
-      `Product has ${tags.length} tag(s). Add 2+ tags to improve store search and filtering.`,
+      `Product has ${realTags.length} tag(s). Add 2+ tags to improve store search and filtering.`,
     ),
     makeCheck(
       'meta-vendor',
       'metadata',
       'Vendor is set',
-      Boolean(vendor),
+      Boolean(vendor.trim()),
       3,
       'Set a vendor/brand name to help customers identify the product origin.',
     ),
@@ -223,7 +261,7 @@ export function auditProduct(product: Product): ProductAuditResult {
       'meta-product-type',
       'metadata',
       'Product type is set',
-      Boolean(productType),
+      Boolean(productType.trim()),
       3,
       'Set a product type for better categorisation and filtering.',
     ),
