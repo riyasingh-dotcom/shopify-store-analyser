@@ -154,7 +154,7 @@ export default function AuditBreakdown({ result }: AuditBreakdownProps) {
         const allPassed = catChecks.every((c) => c.passed);
 
         return (
-          <details key={cat} className="group rounded-xl border border-gray-200 bg-white">
+          <details key={cat} open={cat === 'title' || cat === 'description'} className="group rounded-xl border border-gray-200 bg-white">
             <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 hover:bg-gray-50/60">
               <div className="flex items-center gap-2">
                 <span

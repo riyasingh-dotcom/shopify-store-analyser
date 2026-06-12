@@ -33,54 +33,62 @@ export interface ShopifyFetchResult<T> {
 }
 
 export async function shopifyFetch<T>(
-  options: ShopifyFetchOptions
+  options: ShopifyFetchOptions,
 ): Promise<ShopifyFetchResult<T>> {
   const { query, variables } = options;
 
   const domain = process.env.SHOPIFY_STORE_DOMAIN!;
   const token = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN!;
-
-  // Shopify Admin GraphQL endpoint format
   const endpoint = `https://${domain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Private app / custom app authentication header
-        'X-Shopify-Access-Token': token,
-      },
-      body: JSON.stringify({ query, variables }),
-      // Always fetch live data for the dashboard — no Next.js caching
-      cache: 'no-store',
-    });
+  // Retry once on connection-level failures (stale Undici keepalive socket).
+  // When fetch() throws, Undici discards the failed socket from the pool, so
+  // the retry always gets a fresh TCP connection — no delay needed.
+  // HTTP errors (4xx/5xx) are returned as { data: null, error } and never
+  // reach the catch block, so retrying here is naturally scoped to
+  // network-level failures only.
+  let lastNetworkError = 'Unknown network error';
 
-    if (!response.ok) {
-      return {
-        data: null,
-        error: `Shopify API error: HTTP ${response.status} ${response.statusText}`,
-      };
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': token,
+        },
+        body: JSON.stringify({ query, variables }),
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        return {
+          data: null,
+          error: `Shopify API error: HTTP ${response.status} ${response.statusText}`,
+        };
+      }
+
+      const json = await response.json();
+
+      if (json.errors?.length) {
+        return { data: null, error: (json.errors[0] as { message: string }).message };
+      }
+
+      return { data: json.data as T, error: null };
+    } catch (err) {
+      const cause =
+        err instanceof Error && err.cause instanceof Error
+          ? `: ${err.cause.message}`
+          : '';
+      lastNetworkError =
+        err instanceof Error ? `${err.message}${cause}` : 'Unknown network error';
+
+      if (attempt === 0) {
+        console.warn('[shopifyFetch] Transient connection error, retrying:', lastNetworkError);
+        continue;
+      }
     }
-
-    const json = await response.json();
-
-    // Shopify returns GraphQL errors inside the 200 response body
-    if (json.errors?.length) {
-      return { data: null, error: (json.errors[0] as { message: string }).message };
-    }
-
-    return { data: json.data as T, error: null };
-  } catch (err) {
-    // Node.js native fetch wraps the real error in err.cause (e.g. ENOTFOUND,
-    // CERT_HAS_EXPIRED, ECONNREFUSED). Surfacing it makes "fetch failed" actionable.
-    const cause =
-      err instanceof Error && err.cause instanceof Error
-        ? `: ${err.cause.message}`
-        : '';
-    return {
-      data: null,
-      error: err instanceof Error ? `${err.message}${cause}` : 'Unknown network error',
-    };
   }
+
+  return { data: null, error: lastNetworkError };
 }

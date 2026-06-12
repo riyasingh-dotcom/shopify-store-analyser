@@ -3,7 +3,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { AlertCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { getStoreDataCached } from '@/lib/shopify/cached';
-import { auditProduct } from '@/lib/audit/productAudit';
+import { auditProduct, computeChecksHash } from '@/lib/audit/productAudit';
+import { prisma } from '@/lib/prisma';
 import type { ProductAuditCheck, AuditGrade } from '@/lib/audit/productAudit';
 import { extractNumericId } from '@/lib/shopify/utils';
 import type { ProductStatus } from '@/types/shopify';
@@ -215,6 +216,77 @@ export default async function ProductDetailPage({ params }: Props) {
   if (!product) notFound();
 
   const audit = auditProduct(product);
+  const checksHash = computeChecksHash(audit.checks);
+
+  // Find-or-create: only write a new ProductAuditLog row when the audit result
+  // has actually changed. Two results are considered identical when their
+  // checksHash matches — same pass/fail on every check means same issues,
+  // same score, same grade. On a repeat page view with no product edits this
+  // read returns a match and the write is skipped entirely.
+  let auditLogId: string | null = null;
+  try {
+    const latest = await prisma.productAuditLog.findFirst({
+      where: { productId: product.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, checksHash: true },
+    });
+
+    if (latest !== null && latest.checksHash === checksHash) {
+      // Audit unchanged — reuse the existing record.
+      auditLogId = latest.id;
+    } else {
+      // First visit, or audit composition changed — write a new record.
+      const newLog = await prisma.productAuditLog.create({
+        data: {
+          productId: product.id,
+          productTitle: product.title,
+          totalScore: audit.totalScore,
+          grade: audit.grade,
+          checksJson: audit.checks,
+          checksHash,
+          storeDomain: process.env.SHOPIFY_STORE_DOMAIN ?? 'unknown',
+        },
+      });
+      auditLogId = newLog.id;
+    }
+  } catch (err) {
+    console.error('[ProductDetailPage] Failed to save audit log:', err);
+  }
+
+  const latestSuggestionRow = await prisma.productSuggestion
+    .findFirst({
+      where: { productId: { endsWith: `/${id}` } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        improvedTitle: true,
+        improvedDescription: true,
+        improvedDescriptionHtml: true,
+        improvedSeoTitle: true,
+        improvedSeoDescription: true,
+        suggestedTags: true,
+        reasoning: true,
+        expectedScore: true,
+      },
+    })
+    .catch(() => null);
+
+  const savedSuggestion = latestSuggestionRow
+    ? {
+        improvedTitle: latestSuggestionRow.improvedTitle,
+        improvedDescription: latestSuggestionRow.improvedDescription,
+        improvedDescriptionHtml:
+          latestSuggestionRow.improvedDescriptionHtml ??
+          `<p>${latestSuggestionRow.improvedDescription}</p>`,
+        improvedSeoTitle: latestSuggestionRow.improvedSeoTitle,
+        improvedSeoDescription: latestSuggestionRow.improvedSeoDescription,
+        suggestedTags: Array.isArray(latestSuggestionRow.suggestedTags)
+          ? (latestSuggestionRow.suggestedTags as string[])
+          : [],
+        reasoning: latestSuggestionRow.reasoning,
+      }
+    : null;
+
+  const savedExpectedScore = latestSuggestionRow?.expectedScore ?? null;
 
   const featuredImage = product.images[0];
   const minP = product.priceRangeV2.minVariantPrice;
@@ -264,6 +336,12 @@ export default async function ProductDetailPage({ params }: Props) {
               {failedCount} issue{failedCount !== 1 ? 's' : ''}
             </span>
           )}
+          <Link
+            href={`/products/${id}/history`}
+            className="hidden items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 sm:flex"
+          >
+            History
+          </Link>
           <span
             className={`rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${GRADE_PILL[audit.grade]}`}
           >
@@ -338,7 +416,13 @@ export default async function ProductDetailPage({ params }: Props) {
           {/* Left: issues + AI (2 of 3 cols) */}
           <div className="space-y-6 lg:col-span-2">
             <TopIssuesCard checks={audit.checks} />
-            <ProductSuggestions product={product} auditResult={audit} />
+            <ProductSuggestions
+              product={product}
+              auditResult={audit}
+              savedSuggestion={savedSuggestion}
+              savedExpectedScore={savedExpectedScore}
+              auditLogId={auditLogId}
+            />
           </div>
 
           {/* Right: audit breakdown */}

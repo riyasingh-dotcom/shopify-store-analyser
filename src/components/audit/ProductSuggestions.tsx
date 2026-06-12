@@ -52,6 +52,9 @@ type TagsFieldState =
 interface ProductSuggestionsProps {
   product: FlatProduct;
   auditResult: ProductAuditResult;
+  savedSuggestion?: ProductSuggestion | null;
+  savedExpectedScore?: number | null;
+  auditLogId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -640,12 +643,13 @@ function CardTitle({ pulsing = false }: { pulsing?: boolean }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function ProductSuggestions({ product, auditResult }: ProductSuggestionsProps) {
-  const [status, setStatus] = useState<Status>('idle');
-  const [partial, setPartial] = useState<PartialSuggestion>({});
+export default function ProductSuggestions({ product, auditResult, savedSuggestion, savedExpectedScore, auditLogId }: ProductSuggestionsProps) {
+  const [status, setStatus] = useState<Status>(savedSuggestion ? 'complete' : 'idle');
+  const [partial, setPartial] = useState<PartialSuggestion>(savedSuggestion ?? {});
   const [streamField, setStreamField] = useState<SuggestionKey | null>(null);
   const [streamValue, setStreamValue] = useState('');
   const [activeTab, setActiveTab] = useState<TabId>('title');
+  const [expectedScore, setExpectedScore] = useState<number | null>(savedExpectedScore ?? null);
   const abortRef = useRef<AbortController | null>(null);
   const bufferRef = useRef('');
 
@@ -658,6 +662,7 @@ export default function ProductSuggestions({ product, auditResult }: ProductSugg
     setPartial({});
     setStreamField(null);
     setStreamValue('');
+    setExpectedScore(null);
     setActiveTab('title');
     bufferRef.current = '';
 
@@ -669,7 +674,7 @@ export default function ProductSuggestions({ product, auditResult }: ProductSugg
           'Content-Type': 'application/json',
           'X-Requested-With': 'XMLHttpRequest',
         },
-        body: JSON.stringify({ product, auditResult }),
+        body: JSON.stringify({ product, auditResult, auditLogId }),
         signal: ctrl.signal,
       });
     } catch (err) {
@@ -698,13 +703,31 @@ export default function ProductSuggestions({ product, auditResult }: ProductSugg
         const events = sseBuffer.split('\n\n');
         sseBuffer = events.pop() ?? '';
 
-        for (const event of events) {
-          const line = event.trim();
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice('data: '.length);
-          if (data === '[DONE]') break;
+        for (const block of events) {
+          const trimmed = block.trim();
+          if (!trimmed) continue;
 
-          bufferRef.current += data;
+          // Parse SSE block — may contain an optional "event:" line before "data:".
+          let sseEventType: string | undefined;
+          let sseData: string | undefined;
+          for (const line of trimmed.split('\n')) {
+            if (line.startsWith('event: ')) sseEventType = line.slice('event: '.length).trim();
+            else if (line.startsWith('data: ')) sseData = line.slice('data: '.length);
+          }
+          if (!sseData) continue;
+
+          // Handle the score event emitted by the server after DB save.
+          if (sseEventType === 'score') {
+            try {
+              const parsed = JSON.parse(sseData) as { current: number; expected: number };
+              setExpectedScore(parsed.expected);
+            } catch { /* ignore malformed score event */ }
+            continue;
+          }
+
+          if (sseData === '[DONE]') break;
+
+          bufferRef.current += sseData;
 
           const newPartial = parsePartialSuggestion(bufferRef.current);
           const detected = detectStreamingField(bufferRef.current, newPartial);
@@ -733,7 +756,7 @@ export default function ProductSuggestions({ product, auditResult }: ProductSugg
     } catch {
       setStatus('error');
     }
-  }, [product, auditResult]);
+  }, [product, auditResult, auditLogId]);
 
   // ── idle ──────────────────────────────────────────────────────────────────
 
@@ -895,6 +918,39 @@ export default function ProductSuggestions({ product, auditResult }: ProductSugg
             <span className="not-italic font-semibold text-gray-400">Note: </span>
             {partial.reasoning}
           </p>
+        </div>
+      )}
+
+      {/* Expected score improvement banner — shown after stream completes */}
+      {status === 'complete' && expectedScore !== null && (
+        <div className="border-t border-gray-100 bg-gray-50/60 px-5 py-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+              Expected score after applying
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium tabular-nums text-gray-400">
+                {auditResult.totalScore}/100
+              </span>
+              <span className="text-gray-300">→</span>
+              <span
+                className={`text-sm font-bold tabular-nums ${
+                  expectedScore >= 80
+                    ? 'text-emerald-600'
+                    : expectedScore >= 60
+                      ? 'text-blue-600'
+                      : 'text-amber-600'
+                }`}
+              >
+                {expectedScore}/100
+              </span>
+              {expectedScore > auditResult.totalScore && (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600 ring-1 ring-emerald-200">
+                  +{expectedScore - auditResult.totalScore} pts
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
