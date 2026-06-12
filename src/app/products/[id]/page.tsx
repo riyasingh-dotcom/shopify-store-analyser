@@ -1,14 +1,207 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import { AlertCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { getStoreDataCached } from '@/lib/shopify/cached';
 import { auditProduct } from '@/lib/audit/productAudit';
+import type { ProductAuditCheck, AuditGrade } from '@/lib/audit/productAudit';
 import { extractNumericId } from '@/lib/shopify/utils';
+import type { ProductStatus } from '@/types/shopify';
 import MobileMenuButton from '@/components/MobileMenuButton';
-import ScoreBadge from '@/components/audit/ScoreBadge';
 import AuditBreakdown from '@/components/audit/AuditBreakdown';
+import ProductSuggestions from '@/components/audit/ProductSuggestions';
 
 export const dynamic = 'force-dynamic';
+
+// ── Score ring ─────────────────────────────────────────────────────────────────
+
+const RING_R = 32;
+const RING_CIRC = 2 * Math.PI * RING_R; // 201.062…
+
+const GRADE_STROKE: Record<AuditGrade, string> = {
+  A: '#10b981',
+  B: '#3b82f6',
+  C: '#eab308',
+  D: '#f97316',
+  F: '#ef4444',
+};
+
+const GRADE_PILL: Record<AuditGrade, string> = {
+  A: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  B: 'bg-blue-50 text-blue-700 ring-blue-200',
+  C: 'bg-yellow-50 text-yellow-700 ring-yellow-200',
+  D: 'bg-orange-50 text-orange-700 ring-orange-200',
+  F: 'bg-red-50 text-red-700 ring-red-200',
+};
+
+function ScoreRing({ score, grade }: { score: number; grade: AuditGrade }) {
+  const offset = RING_CIRC * (1 - score / 100);
+  return (
+    <div className="relative flex h-20 w-20 shrink-0 items-center justify-center">
+      <svg
+        viewBox="0 0 80 80"
+        className="absolute inset-0 -rotate-90"
+        style={{ transformOrigin: '40px 40px' }}
+        aria-hidden="true"
+      >
+        <circle cx="40" cy="40" r={RING_R} fill="none" stroke="#f3f4f6" strokeWidth="8" />
+        <circle
+          cx="40"
+          cy="40"
+          r={RING_R}
+          fill="none"
+          stroke={GRADE_STROKE[grade]}
+          strokeWidth="8"
+          strokeDasharray={RING_CIRC}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+        />
+      </svg>
+      <div className="relative text-center">
+        <span className="block text-xl font-bold leading-none tabular-nums text-gray-900">{score}</span>
+        <span className="block text-[10px] font-medium leading-none text-gray-400 mt-0.5">/100</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Status pill ────────────────────────────────────────────────────────────────
+
+const STATUS_STYLE: Record<ProductStatus, string> = {
+  ACTIVE: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  DRAFT: 'bg-gray-100 text-gray-600 ring-gray-200',
+  ARCHIVED: 'bg-red-50 text-red-600 ring-red-200',
+};
+
+function StatusPill({ status }: { status: ProductStatus }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${STATUS_STYLE[status]}`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+      {status.charAt(0) + status.slice(1).toLowerCase()}
+    </span>
+  );
+}
+
+// ── Top Issues card ────────────────────────────────────────────────────────────
+
+type Severity = 'critical' | 'warning' | 'minor';
+
+function getSeverity(maxScore: number): Severity {
+  if (maxScore >= 7) return 'critical';
+  if (maxScore >= 4) return 'warning';
+  return 'minor';
+}
+
+const SEVERITY_ICON_CLASS: Record<Severity, string> = {
+  critical: 'text-red-500',
+  warning: 'text-amber-500',
+  minor: 'text-gray-400',
+};
+
+const SEVERITY_LABEL_CLASS: Record<Severity, string> = {
+  critical: 'bg-red-50 text-red-600 ring-red-100',
+  warning: 'bg-amber-50 text-amber-600 ring-amber-100',
+  minor: 'bg-gray-50 text-gray-500 ring-gray-100',
+};
+
+const SEVERITY_LABEL: Record<Severity, string> = {
+  critical: 'Critical',
+  warning: 'Warning',
+  minor: 'Minor',
+};
+
+function IssueIcon({ severity }: { severity: Severity }) {
+  const cls = `h-4 w-4 shrink-0 mt-0.5 ${SEVERITY_ICON_CLASS[severity]}`;
+  if (severity === 'critical') return <AlertCircle className={cls} />;
+  if (severity === 'warning') return <AlertTriangle className={cls} />;
+  return <Info className={cls} />;
+}
+
+function TopIssuesCard({ checks }: { checks: ProductAuditCheck[] }) {
+  const failed = [...checks]
+    .filter((c) => !c.passed)
+    .sort((a, b) => b.maxScore - a.maxScore);
+
+  if (failed.length === 0) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+        <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
+        <p className="text-sm font-medium text-emerald-800">
+          All {checks.length} audit checks passed — great work!
+        </p>
+      </div>
+    );
+  }
+
+  const critCount = failed.filter((c) => getSeverity(c.maxScore) === 'critical').length;
+  const warnCount = failed.filter((c) => getSeverity(c.maxScore) === 'warning').length;
+  const shown = failed.slice(0, 6);
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
+        <h3 className="text-sm font-semibold text-gray-900">Top Issues</h3>
+        <div className="flex items-center gap-2.5 text-xs">
+          {critCount > 0 && (
+            <span className="flex items-center gap-1 font-medium text-red-600">
+              <AlertCircle className="h-3 w-3" />
+              {critCount} critical
+            </span>
+          )}
+          {warnCount > 0 && (
+            <span className="flex items-center gap-1 font-medium text-amber-600">
+              <AlertTriangle className="h-3 w-3" />
+              {warnCount} warning
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Issue rows */}
+      <ul className="divide-y divide-gray-50">
+        {shown.map((check) => {
+          const sev = getSeverity(check.maxScore);
+          return (
+            <li key={check.id} className="flex items-start gap-3 px-5 py-3.5">
+              <IssueIcon severity={sev} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-800">{check.label}</p>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ring-1 ${SEVERITY_LABEL_CLASS[sev]}`}
+                    >
+                      {SEVERITY_LABEL[sev]}
+                    </span>
+                    <span className="text-[11px] font-medium tabular-nums text-gray-400">
+                      −{check.maxScore} pts
+                    </span>
+                  </div>
+                </div>
+                {check.suggestion && (
+                  <p className="mt-0.5 text-xs leading-relaxed text-gray-500">{check.suggestion}</p>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {failed.length > 6 && (
+        <div className="border-t border-gray-50 px-5 py-2.5">
+          <p className="text-xs text-gray-400">
+            +{failed.length - 6} more issues — see full breakdown →
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -24,194 +217,139 @@ export default async function ProductDetailPage({ params }: Props) {
   const audit = auditProduct(product);
 
   const featuredImage = product.images[0];
-  const minPrice = product.priceRangeV2.minVariantPrice;
-  const maxPrice = product.priceRangeV2.maxVariantPrice;
+  const minP = product.priceRangeV2.minVariantPrice;
+  const maxP = product.priceRangeV2.maxVariantPrice;
+  const fmt = (a: string, c: string) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: c }).format(parseFloat(a));
   const priceDisplay =
-    minPrice.amount === maxPrice.amount
-      ? new Intl.NumberFormat('en-US', { style: 'currency', currency: minPrice.currencyCode }).format(parseFloat(minPrice.amount))
-      : `${new Intl.NumberFormat('en-US', { style: 'currency', currency: minPrice.currencyCode }).format(parseFloat(minPrice.amount))} – ${new Intl.NumberFormat('en-US', { style: 'currency', currency: maxPrice.currencyCode }).format(parseFloat(maxPrice.amount))}`;
+    minP.amount === maxP.amount
+      ? fmt(minP.amount, minP.currencyCode)
+      : `${fmt(minP.amount, minP.currencyCode)} – ${fmt(maxP.amount, maxP.currencyCode)}`;
+
+  const failedCount = audit.checks.filter((c) => !c.passed).length;
+  const metaLine = [product.vendor, product.productType].filter(Boolean).join(' · ');
 
   return (
     <>
-      {/* Header */}
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-white/90 px-4 backdrop-blur-sm sm:px-6">
-        <div className="flex items-center gap-3">
+      {/* ── Sticky header ─────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur-sm sm:px-6">
+        <div className="flex items-center gap-2.5">
           <MobileMenuButton />
-          <div className="flex items-center gap-2">
-            <Link
-              href="/products"
-              className="flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-indigo-600"
+          <Link
+            href="/products"
+            className="flex items-center gap-1 text-xs font-medium text-gray-400 transition-colors hover:text-indigo-600"
+          >
+            <svg
+              className="h-3.5 w-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
             >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M15 19l-7-7 7-7" />
-              </svg>
-              Products
-            </Link>
-            <span className="text-gray-200">/</span>
-            <h1 className="max-w-[180px] truncate text-sm font-bold text-gray-900 sm:max-w-xs">
-              {product.title}
-            </h1>
-          </div>
+              <path d="M15 19l-7-7 7-7" />
+            </svg>
+            Products
+          </Link>
+          <span className="text-gray-200">/</span>
+          <h1 className="max-w-45 truncate text-sm font-semibold text-gray-900 sm:max-w-xs">
+            {product.title}
+          </h1>
         </div>
-        <ScoreBadge score={audit.totalScore} grade={audit.grade} size="md" />
+        <div className="flex items-center gap-2.5">
+          {failedCount > 0 && (
+            <span className="hidden text-xs text-gray-400 sm:block">
+              {failedCount} issue{failedCount !== 1 ? 's' : ''}
+            </span>
+          )}
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${GRADE_PILL[audit.grade]}`}
+          >
+            {audit.totalScore}/100
+          </span>
+        </div>
       </header>
 
       <main className="flex-1 p-4 sm:p-6">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
 
-          {/* ── Left column: product info ── */}
-          <div className="space-y-4">
+        {/* ── Hero band ─────────────────────────────────────────────────── */}
+        <div className="mb-6 flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:gap-6">
 
-            {/* Product card */}
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-              {/* Featured image */}
+          {/* Product summary */}
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            {/* Thumbnail */}
+            <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
               {featuredImage?.url ? (
-                <div className="relative aspect-video w-full overflow-hidden bg-gray-50">
-                  <Image
-                    src={featuredImage.url}
-                    alt={featuredImage.altText ?? product.title}
-                    fill
-                    className="object-contain"
-                    sizes="(max-width: 1024px) 100vw, 50vw"
-                  />
-                </div>
+                <Image
+                  src={featuredImage.url}
+                  alt={featuredImage.altText ?? product.title}
+                  fill
+                  className="object-cover"
+                  sizes="56px"
+                />
               ) : (
-                <div className="flex aspect-video w-full items-center justify-center bg-indigo-50">
-                  <span className="text-5xl font-bold text-indigo-200">
-                    {product.title.charAt(0).toUpperCase()}
-                  </span>
-                </div>
+                <span className="flex h-full w-full items-center justify-center text-xl font-bold text-gray-300">
+                  {product.title.charAt(0).toUpperCase()}
+                </span>
               )}
-
-              <div className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-lg font-bold text-gray-900">{product.title}</h2>
-                    {product.vendor && (
-                      <p className="mt-0.5 text-sm text-gray-500">{product.vendor}</p>
-                    )}
-                  </div>
-                  <ScoreBadge score={audit.totalScore} grade={audit.grade} size="lg" />
-                </div>
-
-                <p className="mt-2 text-lg font-semibold text-indigo-700">{priceDisplay}</p>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {product.status === 'ACTIVE' && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Active
-                    </span>
-                  )}
-                  {product.status === 'DRAFT' && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
-                      <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />Draft
-                    </span>
-                  )}
-                  {product.status === 'ARCHIVED' && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-600">
-                      <span className="h-1.5 w-1.5 rounded-full bg-red-400" />Archived
-                    </span>
-                  )}
-                  {product.productType && (
-                    <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
-                      {product.productType}
-                    </span>
-                  )}
-                  {product.tags.slice(0, 4).map((tag) => (
-                    <span key={tag} className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-600">
-                      {tag}
-                    </span>
-                  ))}
-                  {product.tags.length > 4 && (
-                    <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
-                      +{product.tags.length - 4} more
-                    </span>
-                  )}
-                </div>
-              </div>
             </div>
 
-            {/* Title & description */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-              <h3 className="mb-3 text-sm font-semibold text-gray-800">Title & Description</h3>
-              <div className="space-y-3">
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-400">Title</p>
-                  <p className="text-sm text-gray-700">{product.title}</p>
-                  <p className="mt-0.5 text-[11px] text-gray-400">{product.title.length} characters</p>
-                </div>
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-400">Description</p>
-                  {product.descriptionHtml ? (
-                    <div
-                      className="prose prose-sm max-w-none text-gray-600"
-                      dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
-                    />
-                  ) : (
-                    <p className="text-sm italic text-gray-400">No description set.</p>
-                  )}
-                </div>
+            {/* Meta */}
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="truncate text-base font-bold text-gray-900">{product.title}</p>
+                <StatusPill status={product.status} />
               </div>
+              {metaLine && (
+                <p className="mt-0.5 truncate text-sm text-gray-500">{metaLine}</p>
+              )}
+              <p className="mt-1 text-sm font-semibold text-gray-700">{priceDisplay}</p>
             </div>
-
-            {/* SEO fields */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-              <h3 className="mb-3 text-sm font-semibold text-gray-800">SEO Fields</h3>
-              <div className="space-y-3">
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-400">SEO Title</p>
-                  {product.seo.title ? (
-                    <>
-                      <p className="text-sm text-gray-700">{product.seo.title}</p>
-                      <p className="mt-0.5 text-[11px] text-gray-400">{product.seo.title.length} characters</p>
-                    </>
-                  ) : (
-                    <p className="text-sm italic text-gray-400">Not set</p>
-                  )}
-                </div>
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-400">SEO Description</p>
-                  {product.seo.description ? (
-                    <>
-                      <p className="text-sm text-gray-700">{product.seo.description}</p>
-                      <p className="mt-0.5 text-[11px] text-gray-400">{product.seo.description.length} characters</p>
-                    </>
-                  ) : (
-                    <p className="text-sm italic text-gray-400">Not set</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Get Claude Suggestions button */}
-            <button
-              type="button"
-              disabled
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 px-4 py-3 text-sm font-semibold text-indigo-700 opacity-60 cursor-not-allowed"
-              title="Coming soon"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 5v5l3 3" />
-              </svg>
-              Get Claude Suggestions
-              <span className="ml-auto rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-500">
-                Soon
-              </span>
-            </button>
           </div>
 
-          {/* ── Right column: audit breakdown ── */}
+          {/* Divider */}
+          <div className="h-px w-full bg-gray-100 sm:h-16 sm:w-px sm:shrink-0" />
+
+          {/* Score */}
+          <div className="flex shrink-0 items-center gap-4">
+            <ScoreRing score={audit.totalScore} grade={audit.grade} />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                Audit Score
+              </p>
+              <div className="mt-0.5 flex items-baseline gap-1.5">
+                <span className="text-3xl font-bold leading-none text-gray-900">{audit.grade}</span>
+                <span className="text-sm text-gray-400">grade</span>
+              </div>
+              <p className="mt-1.5 text-xs text-gray-500">
+                {failedCount === 0
+                  ? 'All checks passed'
+                  : `${failedCount} failing check${failedCount !== 1 ? 's' : ''}`}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Main grid ─────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+
+          {/* Left: issues + AI (2 of 3 cols) */}
+          <div className="space-y-6 lg:col-span-2">
+            <TopIssuesCard checks={audit.checks} />
+            <ProductSuggestions product={product} auditResult={audit} />
+          </div>
+
+          {/* Right: audit breakdown */}
           <div>
-            <h3 className="mb-3 text-sm font-semibold text-gray-800">Audit Breakdown</h3>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
+              Audit Breakdown
+            </h2>
             <AuditBreakdown result={audit} />
           </div>
-
         </div>
       </main>
-
-      <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6">
-        Shopify Store Analyser · Product Audit
-      </footer>
     </>
   );
 }
