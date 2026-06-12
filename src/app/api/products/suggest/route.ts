@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import OpenAI from 'openai';
 import type { Stream } from 'openai/streaming';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
@@ -11,17 +12,85 @@ import { sanitizeHtml } from '@/lib/sanitizeHtml';
 export const dynamic = 'force-dynamic';
 
 // ---------------------------------------------------------------------------
-// Types
+// Zod schemas — single source of truth for request body validation
 // ---------------------------------------------------------------------------
 
-type SuggestRequestBody = {
-  product: Product;
-  auditResult: ProductAuditResult;
-  auditLogId?: string | null;
-};
+const MoneyV2Schema = z.object({
+  amount: z.string(),
+  currencyCode: z.string(),
+});
+
+const ProductSchema = z.object({
+  id: z.string().min(1).max(200),
+  title: z.string(),
+  descriptionHtml: z.string(),
+  status: z.enum(['ACTIVE', 'ARCHIVED', 'DRAFT']),
+  vendor: z.string(),
+  productType: z.string(),
+  tags: z.array(z.string()),
+  onlineStoreUrl: z.string().nullable(),
+  seo: z.object({
+    title: z.string().nullable(),
+    description: z.string().nullable(),
+  }),
+  totalInventory: z.number(),
+  priceRangeV2: z.object({
+    minVariantPrice: MoneyV2Schema,
+    maxVariantPrice: MoneyV2Schema,
+  }),
+  variants: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    price: z.string(),
+    inventoryQuantity: z.number().nullable(),
+    sku: z.string().nullable(),
+  })),
+  images: z.array(z.object({
+    url: z.string(),
+    altText: z.string().nullable(),
+  })),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const AuditCategorySchema = z.enum(['title', 'description', 'seo', 'media', 'metadata']);
+
+const ProductAuditCheckSchema = z.object({
+  id: z.string(),
+  category: AuditCategorySchema,
+  label: z.string(),
+  passed: z.boolean(),
+  score: z.number(),
+  maxScore: z.number(),
+  suggestion: z.string().optional(),
+});
+
+const CategoryScoreSchema = z.object({ score: z.number(), maxScore: z.number() });
+
+const ProductAuditResultSchema = z.object({
+  productId: z.string(),
+  checks: z.array(ProductAuditCheckSchema),
+  totalScore: z.number(),
+  grade: z.enum(['A', 'B', 'C', 'D', 'F']),
+  categoryScores: z.object({
+    title: CategoryScoreSchema,
+    description: CategoryScoreSchema,
+    seo: CategoryScoreSchema,
+    media: CategoryScoreSchema,
+    metadata: CategoryScoreSchema,
+  }),
+});
+
+const SuggestBodySchema = z.object({
+  product: ProductSchema,
+  auditResult: ProductAuditResultSchema,
+  auditLogId: z.string().nullable().optional(),
+});
+
+type SuggestRequestBody = z.infer<typeof SuggestBodySchema>;
 
 // ---------------------------------------------------------------------------
-// Type guards — replaces all unsafe `as` casts
+// Type guards (retained for Groq error handling and response validation)
 // ---------------------------------------------------------------------------
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -30,45 +99,6 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function hasHttpStatus(e: unknown): e is { status: number } {
   return isRecord(e) && 'status' in e && typeof e.status === 'number';
-}
-
-// ---------------------------------------------------------------------------
-// Input validation
-// ---------------------------------------------------------------------------
-
-function isValidBody(raw: unknown): raw is SuggestRequestBody {
-  if (!isRecord(raw)) return false;
-
-  const { product, auditResult } = raw;
-  if (!isRecord(product) || !isRecord(auditResult)) return false;
-
-  // product shape
-  if (typeof product.id !== 'string' || product.id.length === 0 || product.id.length > 200) return false;
-  if (typeof product.title !== 'string') return false;
-  if (typeof product.descriptionHtml !== 'string') return false;
-  if (typeof product.vendor !== 'string') return false;
-  if (typeof product.productType !== 'string') return false;
-
-  // images must be an array (elements need not be deep-validated here)
-  if (!Array.isArray(product.images)) return false;
-
-  // tags: array of strings only
-  if (!Array.isArray(product.tags)) return false;
-  if (!product.tags.every((t: unknown) => typeof t === 'string')) return false;
-
-  // seo object — title and description are string | null
-  if (!isRecord(product.seo)) return false;
-  if (product.seo.title !== null && typeof product.seo.title !== 'string') return false;
-  if (product.seo.description !== null && typeof product.seo.description !== 'string') return false;
-
-  // auditResult shape — categoryScores must exist so buildUserPrompt can index into it
-  if (typeof auditResult.productId !== 'string') return false;
-  if (typeof auditResult.totalScore !== 'number') return false;
-  if (typeof auditResult.grade !== 'string') return false;
-  if (!Array.isArray(auditResult.checks)) return false;
-  if (!isRecord(auditResult.categoryScores)) return false;
-
-  return true;
 }
 
 function isProductSuggestion(v: unknown): v is ProductSuggestion {
@@ -428,14 +458,15 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  if (!isValidBody(rawBody)) {
+  const parseResult = SuggestBodySchema.safeParse(rawBody);
+  if (!parseResult.success) {
     return Response.json(
-      { error: 'Request body must contain { product: Product; auditResult: ProductAuditResult }' },
-      { status: 422 },
+      { error: 'Invalid request body', issues: parseResult.error.issues },
+      { status: 400 },
     );
   }
 
-  const { product, auditResult, auditLogId } = rawBody;
+  const { product, auditResult, auditLogId } = parseResult.data;
 
   const client = new OpenAI({
     baseURL: 'https://api.groq.com/openai/v1',
