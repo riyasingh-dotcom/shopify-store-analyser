@@ -52,6 +52,7 @@ type TagsFieldState =
 interface ProductSuggestionsProps {
   product: FlatProduct;
   auditResult: ProductAuditResult;
+  savedSuggestion?: ProductSuggestion | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -640,9 +641,9 @@ function CardTitle({ pulsing = false }: { pulsing?: boolean }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function ProductSuggestions({ product, auditResult }: ProductSuggestionsProps) {
-  const [status, setStatus] = useState<Status>('idle');
-  const [partial, setPartial] = useState<PartialSuggestion>({});
+export default function ProductSuggestions({ product, auditResult, savedSuggestion }: ProductSuggestionsProps) {
+  const [status, setStatus] = useState<Status>(savedSuggestion ? 'complete' : 'idle');
+  const [partial, setPartial] = useState<PartialSuggestion>(savedSuggestion ?? {});
   const [streamField, setStreamField] = useState<SuggestionKey | null>(null);
   const [streamValue, setStreamValue] = useState('');
   const [activeTab, setActiveTab] = useState<TabId>('title');

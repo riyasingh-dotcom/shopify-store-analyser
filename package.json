@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:push": "bash -c 'set -a && source .env.local && set +a && prisma db push'",
+    "db:migrate": "bash -c 'set -a && source .env.local && set +a && prisma migrate dev'",
+    "db:studio": "bash -c 'set -a && source .env.local && set +a && prisma studio'",
+    "db:generate": "bash -c 'set -a && source .env.local && set +a && prisma generate'"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

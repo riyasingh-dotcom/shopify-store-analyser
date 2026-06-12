@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { AlertCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { getStoreDataCached } from '@/lib/shopify/cached';
 import { auditProduct } from '@/lib/audit/productAudit';
+import { prisma } from '@/lib/prisma';
 import type { ProductAuditCheck, AuditGrade } from '@/lib/audit/productAudit';
 import { extractNumericId } from '@/lib/shopify/utils';
 import type { ProductStatus } from '@/types/shopify';
@@ -216,6 +217,46 @@ export default async function ProductDetailPage({ params }: Props) {
 
   const audit = auditProduct(product);
 
+  try {
+    await prisma.productAuditLog.create({
+      data: {
+        productId: product.id,
+        productTitle: product.title,
+        totalScore: audit.totalScore,
+        grade: audit.grade,
+        checksJson: audit.checks,
+        storeDomain: process.env.SHOPIFY_STORE_DOMAIN ?? 'unknown',
+      },
+    });
+  } catch (err) {
+    console.error('[ProductDetailPage] Failed to save audit log:', err);
+  }
+
+  const latestSuggestionRow = await prisma.productSuggestion
+    .findFirst({
+      where: { productId: { endsWith: `/${id}` } },
+      orderBy: { createdAt: 'desc' },
+    })
+    .catch(() => null);
+
+  const savedSuggestion = latestSuggestionRow
+    ? {
+        improvedTitle: latestSuggestionRow.improvedTitle,
+        improvedDescription: latestSuggestionRow.improvedDescription,
+        // Rows saved before the schema migration have null here — fall back to
+        // plain text wrapped in a paragraph so the description tab renders.
+        improvedDescriptionHtml:
+          latestSuggestionRow.improvedDescriptionHtml ??
+          `<p>${latestSuggestionRow.improvedDescription}</p>`,
+        improvedSeoTitle: latestSuggestionRow.improvedSeoTitle,
+        improvedSeoDescription: latestSuggestionRow.improvedSeoDescription,
+        suggestedTags: Array.isArray(latestSuggestionRow.suggestedTags)
+          ? (latestSuggestionRow.suggestedTags as string[])
+          : [],
+        reasoning: latestSuggestionRow.reasoning,
+      }
+    : null;
+
   const featuredImage = product.images[0];
   const minP = product.priceRangeV2.minVariantPrice;
   const maxP = product.priceRangeV2.maxVariantPrice;
@@ -264,6 +305,12 @@ export default async function ProductDetailPage({ params }: Props) {
               {failedCount} issue{failedCount !== 1 ? 's' : ''}
             </span>
           )}
+          <Link
+            href={`/products/${id}/history`}
+            className="hidden items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 sm:flex"
+          >
+            History
+          </Link>
           <span
             className={`rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${GRADE_PILL[audit.grade]}`}
           >
@@ -338,7 +385,7 @@ export default async function ProductDetailPage({ params }: Props) {
           {/* Left: issues + AI (2 of 3 cols) */}
           <div className="space-y-6 lg:col-span-2">
             <TopIssuesCard checks={audit.checks} />
-            <ProductSuggestions product={product} auditResult={audit} />
+            <ProductSuggestions product={product} auditResult={audit} savedSuggestion={savedSuggestion} />
           </div>
 
           {/* Right: audit breakdown */}

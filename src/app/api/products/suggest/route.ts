@@ -3,6 +3,7 @@ import type { Stream } from 'openai/streaming';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
 import type { Product } from '@/types/shopify';
 import type { ProductAuditResult, ProductAuditCheck } from '@/lib/audit/productAudit';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
@@ -242,6 +243,59 @@ async function createGroqStream(
 }
 
 // ---------------------------------------------------------------------------
+// JSON sanitiser — LLMs sometimes emit literal control characters (0x00–0x1F)
+// inside string values instead of the required JSON escape sequences.
+// This pass converts them without disturbing already-escaped sequences.
+// ---------------------------------------------------------------------------
+
+function sanitiseRawJson(raw: string): string {
+  let out = '';
+  let i = 0;
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === '\\') {
+      // Copy the escape sequence as-is — don't re-escape the next character.
+      out += ch + (raw[i + 1] ?? '');
+      i += 2;
+    } else if (ch.charCodeAt(0) < 0x20) {
+      // Bare control character inside a string value — replace with the
+      // standard JSON escape so JSON.parse accepts it.
+      switch (ch) {
+        case '\n': out += '\\n'; break;
+        case '\r': out += '\\r'; break;
+        case '\t': out += '\\t'; break;
+        default:
+          out += `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
+      }
+      i++;
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Type guard for the completed suggestion (used for DB persistence)
+// ---------------------------------------------------------------------------
+
+function isProductSuggestion(v: unknown): v is ProductSuggestion {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.improvedTitle === 'string' &&
+    typeof o.improvedDescription === 'string' &&
+    typeof o.improvedDescriptionHtml === 'string' &&
+    typeof o.improvedSeoTitle === 'string' &&
+    typeof o.improvedSeoDescription === 'string' &&
+    Array.isArray(o.suggestedTags) &&
+    (o.suggestedTags as unknown[]).every((t) => typeof t === 'string') &&
+    typeof o.reasoning === 'string'
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Input validation — no Zod, narrow manually to avoid any assertions
 // ---------------------------------------------------------------------------
 
@@ -326,29 +380,71 @@ export async function POST(request: Request): Promise<Response> {
   const encoder = new TextEncoder();
 
   // Stream tokens as SSE events so the client can render progressive output.
-  // The complete JSON object is accumulated client-side then parsed once done.
+  // IMPORTANT: the DB save must happen BEFORE emit('[DONE]') and controller.close().
+  // Next.js does not await the remainder of ReadableStream.start() after
+  // controller.close() — any async work after that point is silently dropped.
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
       function emit(data: string): void {
         controller.enqueue(encoder.encode(`data: ${data}\n\n`));
       }
 
+      let fullContent = '';
+
+      // ── 1. Stream all Groq tokens to the client ──────────────────────────
       try {
         for await (const chunk of groqStream) {
           const token = chunk.choices[0]?.delta?.content;
           if (token) {
+            fullContent += token;
             emit(token);
           }
         }
-        // Signal the end of the stream to the client.
-        emit('[DONE]');
-        controller.close();
       } catch (err) {
         console.error('[/api/products/suggest] Stream read error:', err);
-        // Emit an error event before closing so the client can surface it.
         controller.enqueue(encoder.encode(`event: error\ndata: Stream interrupted\n\n`));
         controller.error(err);
+        return;
       }
+
+      // ── 2. Persist to DB (stream still open — Next.js hasn't closed the ──
+      //       request context yet, so this await is guaranteed to complete)  ──
+      console.log('[suggest] fullContent length:', fullContent.length, '| productId:', product.id);
+      try {
+        const parsed: unknown = JSON.parse(sanitiseRawJson(fullContent.trim()));
+        const valid = isProductSuggestion(parsed);
+        console.log('[suggest] isProductSuggestion:', valid);
+        if (valid) {
+          const row = await prisma.productSuggestion.create({
+            data: {
+              productId: product.id,
+              productTitle: product.title,
+              originalTitle: product.title,
+              improvedTitle: parsed.improvedTitle,
+              originalDescription: stripHtmlForPrompt(product.descriptionHtml),
+              improvedDescription: parsed.improvedDescription,
+              improvedDescriptionHtml: parsed.improvedDescriptionHtml,
+              originalSeoTitle: product.seo.title || null,
+              improvedSeoTitle: parsed.improvedSeoTitle,
+              originalSeoDescription: product.seo.description || null,
+              improvedSeoDescription: parsed.improvedSeoDescription,
+              suggestedTags: parsed.suggestedTags,
+              reasoning: parsed.reasoning,
+              auditScore: auditResult.totalScore,
+              storeDomain: process.env.SHOPIFY_STORE_DOMAIN ?? 'unknown',
+            },
+          });
+          console.log('[suggest] saved row id:', row.id, '| productId stored:', row.productId);
+        } else {
+          console.warn('[suggest] isProductSuggestion failed — keys present:', Object.keys(parsed as object));
+        }
+      } catch (err) {
+        console.error('[suggest] DB save failed:', err);
+      }
+
+      // ── 3. Signal completion — client unblocks only after DB is written ──
+      emit('[DONE]');
+      controller.close();
     },
     cancel() {
       groqStream.controller.abort();

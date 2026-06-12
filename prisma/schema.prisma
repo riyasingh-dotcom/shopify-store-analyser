@@ -30,3 +30,34 @@ model ShopifySnapshot {
   analysisId   String        @unique
   analysis     StoreAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 }
+
+model ProductAuditLog {
+  id           String   @id @default(cuid())
+  productId    String
+  productTitle String
+  totalScore   Int
+  grade        String
+  checksJson   Json
+  storeDomain  String
+  createdAt    DateTime @default(now())
+}
+
+model ProductSuggestion {
+  id                     String   @id @default(cuid())
+  productId              String
+  productTitle           String
+  originalTitle          String
+  improvedTitle          String
+  originalDescription    String
+  improvedDescription    String
+  improvedDescriptionHtml String?
+  originalSeoTitle       String?
+  improvedSeoTitle       String
+  originalSeoDescription String?
+  improvedSeoDescription String
+  suggestedTags          Json
+  reasoning              String
+  auditScore             Int
+  storeDomain            String
+  createdAt              DateTime @default(now())
+}

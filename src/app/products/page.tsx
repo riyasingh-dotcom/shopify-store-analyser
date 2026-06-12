@@ -1,8 +1,11 @@
 import { getStoreDataCached } from '@/lib/shopify/cached';
 import MobileMenuButton from '@/components/MobileMenuButton';
 import ProductsTable from '@/components/ProductsTable';
+import BulkOptimise from '@/components/BulkOptimise';
 import { auditProduct } from '@/lib/audit/productAudit';
 import type { ProductAuditResult } from '@/lib/audit/productAudit';
+import { prisma } from '@/lib/prisma';
+import { extractNumericId } from '@/lib/shopify/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +19,36 @@ export default async function ProductsPage() {
   const sorted = [...products].sort(
     (a, b) => (audits[a.id]?.totalScore ?? 0) - (audits[b.id]?.totalScore ?? 0),
   );
+
+  // Products graded D or F that don't already have a saved suggestion.
+  const poorGradeIds = products
+    .filter((p) => {
+      const g = audits[p.id]?.grade;
+      return g === 'D' || g === 'F';
+    })
+    .map((p) => p.id);
+
+  const alreadySaved = await prisma.productSuggestion
+    .findMany({
+      where: { productId: { in: poorGradeIds } },
+      select: { productId: true },
+      distinct: ['productId'],
+    })
+    .then((rows) => new Set(rows.map((r) => r.productId)));
+
+  const poorProducts = products
+    .filter((p) => {
+      const g = audits[p.id]?.grade;
+      return (g === 'D' || g === 'F') && !alreadySaved.has(p.id);
+    })
+    .slice(0, 5)
+    .map((p) => ({
+      id: extractNumericId(p.id),
+      title: p.title,
+      score: audits[p.id]?.totalScore ?? 0,
+      product: p,
+      auditResult: audits[p.id]!,
+    }));
 
   return (
     <>
@@ -41,6 +74,11 @@ export default async function ProductsPage() {
       </header>
 
       <main className="flex-1 p-4 sm:p-6">
+        {poorProducts.length > 0 && (
+          <div className="mb-5">
+            <BulkOptimise poorProducts={poorProducts} />
+          </div>
+        )}
         <ProductsTable products={sorted} audits={audits} />
       </main>
 

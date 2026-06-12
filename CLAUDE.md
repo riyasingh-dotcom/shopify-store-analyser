@@ -11,9 +11,10 @@ npm run dev      # Start dev server at http://localhost:3000
 npm run build    # Production build (type-check + lint + Next.js compiler)
 npm run lint     # ESLint only
 npx tsc --noEmit # Type-check without building
-npx prisma generate   # Regenerate Prisma client after schema changes
-npx prisma migrate dev --name <name>  # Create and apply a new migration
-npx prisma studio     # Open DB browser UI
+pnpm db:push          # Push schema changes to DB — sources .env.local automatically
+pnpm db:migrate       # Create and apply a named migration
+pnpm db:studio        # Open DB browser UI
+pnpm db:generate      # Regenerate Prisma client after schema changes
 ```
 
 **Docker:**
