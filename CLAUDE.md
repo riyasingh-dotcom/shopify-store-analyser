@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+**Local (outside Docker):**
+
 ```bash
 npm run dev      # Start dev server at http://localhost:3000
 npm run build    # Production build (type-check + lint + Next.js compiler)
@@ -12,6 +14,16 @@ npx tsc --noEmit # Type-check without building
 npx prisma generate   # Regenerate Prisma client after schema changes
 npx prisma migrate dev --name <name>  # Create and apply a new migration
 npx prisma studio     # Open DB browser UI
+```
+
+**Docker:**
+
+```bash
+docker compose up --build                        # App only (uses cloud DB from .env.local)
+docker compose --profile local-db up --build     # App + local Postgres
+docker compose down                              # Stop containers
+docker compose down -v                           # Stop and delete the postgres_data volume
+docker build -t shopify-store-analyser .         # Build image standalone
 ```
 
 There are no tests in this project.
@@ -32,6 +44,51 @@ Copy `.env.example` to `.env.local`. The app enters **mock mode** automatically 
 
 † Both must be set together for live mode; omit either to use mock data.  
 ‡ Only needed for the initial access-token exchange.
+
+## Docker
+
+The project is fully dockerized. Three key files:
+
+| File | Purpose |
+|---|---|
+| `Dockerfile` | Multi-stage build: `deps` → `builder` → `runner` (node:20-slim) |
+| `docker-compose.yml` | Orchestrates `app` + optional local `db` (Postgres 16) |
+| `docker-entrypoint.sh` | Runs `prisma db push` then `npm start` on every container start |
+| `.devcontainer/devcontainer.json` | VS Code Dev Container config — opens the workspace inside the container |
+
+### Running with Docker
+
+**Against your cloud DB (default)** — reads `DATABASE_URL` / `DIRECT_URL` from `.env.local`:
+
+```bash
+docker compose up --build
+```
+
+**With a local Postgres container** — activates the `db` service via a profile:
+
+```bash
+# First time: start the db, let it initialise, then bring up the app
+docker compose --profile local-db up --build
+
+# DATABASE_URL is set automatically inside the container:
+# postgres://postgres:postgres@db:5432/shopify_analyser
+```
+
+### How migrations work in Docker
+
+`docker-entrypoint.sh` runs `prisma db push --accept-data-loss` on every startup — this keeps the schema in sync without a manual migration step. For production you should switch to `prisma migrate deploy` and manage migrations explicitly.
+
+### Building the image
+
+```bash
+docker build -t shopify-store-analyser .
+```
+
+### Notes
+
+- **No `localhost` inside containers.** The app reaches Postgres via the service name `db`, not `localhost`. Always use `@db:5432` in `DATABASE_URL` when using the `local-db` profile.
+- **Prisma binary target.** `schema.prisma` includes `rhel-openssl-3.0.x` so the correct query engine is bundled for the Debian-based Docker image.
+- **`.env.local` is never baked into the image.** Secrets are injected at runtime via `env_file` in `docker-compose.yml` or environment variables in your hosting platform.
 
 ## Architecture
 

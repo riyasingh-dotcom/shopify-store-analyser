@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import type { Product, ProductStatus, MoneyV2 } from '@/types/shopify';
+import Image from 'next/image';
+import type { Product, ProductStatus, ProductSeo, ProductImage, MoneyV2 } from '@/types/shopify';
 
 const PAGE_SIZE = 10;
 
@@ -23,9 +24,9 @@ function formatPriceRange(product: Product): string {
 // ── status badge ──────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<ProductStatus, { dot: string; bg: string; text: string; label: string }> = {
-  ACTIVE:   { dot: 'bg-emerald-500', bg: 'bg-emerald-50',  text: 'text-emerald-700', label: 'Active'   },
-  DRAFT:    { dot: 'bg-amber-400',   bg: 'bg-amber-50',    text: 'text-amber-700',   label: 'Draft'    },
-  ARCHIVED: { dot: 'bg-gray-400',    bg: 'bg-gray-100',    text: 'text-gray-500',    label: 'Archived' },
+  ACTIVE:   { dot: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Active'   },
+  DRAFT:    { dot: 'bg-gray-400',    bg: 'bg-gray-100',   text: 'text-gray-600',    label: 'Draft'    },
+  ARCHIVED: { dot: 'bg-red-400',     bg: 'bg-red-50',     text: 'text-red-600',     label: 'Archived' },
 };
 
 function StatusBadge({ status }: { status: ProductStatus }) {
@@ -35,6 +36,31 @@ function StatusBadge({ status }: { status: ProductStatus }) {
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       {label}
     </span>
+  );
+}
+
+// ── product thumbnail ─────────────────────────────────────────────────────────
+
+function ProductThumbnail({ image, title }: { image: ProductImage | undefined; title: string }) {
+  const [error, setError] = useState(false);
+
+  if (!image?.url || error) {
+    return (
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-sm font-bold text-indigo-600">
+        {title.charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={image.url}
+      alt={image.altText ?? title}
+      width={48}
+      height={48}
+      className="h-12 w-12 shrink-0 rounded-lg object-cover"
+      onError={() => setError(true)}
+    />
   );
 }
 
@@ -55,7 +81,46 @@ function InventoryBar({ value, max }: { value: number; max: number }) {
   );
 }
 
-// ── summary pills ─────────────────────────────────────────────────────────────
+// ── SEO status ────────────────────────────────────────────────────────────────
+
+function SeoStatus({ seo }: { seo: ProductSeo }) {
+  const hasTitle = Boolean(seo.title);
+  const hasDesc  = Boolean(seo.description);
+
+  if (hasTitle && hasDesc) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M20 6L9 17l-5-5" />
+        </svg>
+        Complete
+      </span>
+    );
+  }
+
+  if (hasTitle || hasDesc) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600">
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+        </svg>
+        Partial
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-medium text-red-500">
+      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M15 9l-6 6M9 9l6 6" />
+      </svg>
+      Missing
+    </span>
+  );
+}
+
+// ── summary pill ──────────────────────────────────────────────────────────────
 
 function SummaryPill({ label, value, color }: { label: string; value: number; color: string }) {
   return (
@@ -88,7 +153,6 @@ function Pagination({ page, totalPages, totalItems, pageSize, onPrev, onNext }: 
         <span className="font-semibold text-gray-700">{totalItems}</span> products
       </p>
       <div className="flex items-center gap-2">
-        {/* Page dots */}
         <div className="hidden items-center gap-1 sm:flex">
           {Array.from({ length: totalPages }).map((_, i) => (
             <span
@@ -97,9 +161,7 @@ function Pagination({ page, totalPages, totalItems, pageSize, onPrev, onNext }: 
             />
           ))}
         </div>
-        <span className="mx-2 text-xs text-gray-400">
-          {page + 1} / {totalPages}
-        </span>
+        <span className="mx-2 text-xs text-gray-400">{page + 1} / {totalPages}</span>
         <button
           onClick={onPrev}
           disabled={page === 0}
@@ -118,7 +180,7 @@ function Pagination({ page, totalPages, totalItems, pageSize, onPrev, onNext }: 
           className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Next
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M9 5l7 7-7 7" />
           </svg>
         </button>
@@ -136,13 +198,14 @@ interface ProductsTableProps {
 export default function ProductsTable({ products }: ProductsTableProps) {
   const [page, setPage] = useState(0);
 
-  const totalPages  = Math.max(1, Math.ceil(products.length / PAGE_SIZE));
-  const visibleRows = products.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages   = Math.max(1, Math.ceil(products.length / PAGE_SIZE));
+  const visibleRows  = products.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const maxInventory = Math.max(...products.map((p) => p.totalInventory), 1);
 
   const active   = products.filter((p) => p.status === 'ACTIVE').length;
   const draft    = products.filter((p) => p.status === 'DRAFT').length;
   const archived = products.filter((p) => p.status === 'ARCHIVED').length;
+  const noSeo    = products.filter((p) => !p.seo.title && !p.seo.description).length;
   const lowStock = products.filter((p) => p.totalInventory > 0 && p.totalInventory < 10).length;
 
   return (
@@ -156,10 +219,13 @@ export default function ProductsTable({ products }: ProductsTableProps) {
           </div>
           <div className="flex flex-wrap gap-2">
             <SummaryPill label="Active"    value={active}   color="bg-emerald-50 text-emerald-700" />
-            <SummaryPill label="Draft"     value={draft}    color="bg-amber-50 text-amber-700" />
-            <SummaryPill label="Archived"  value={archived} color="bg-gray-100 text-gray-500" />
+            <SummaryPill label="Draft"     value={draft}    color="bg-gray-100 text-gray-600" />
+            <SummaryPill label="Archived"  value={archived} color="bg-red-50 text-red-600" />
+            {noSeo > 0 && (
+              <SummaryPill label="No SEO"    value={noSeo}    color="bg-amber-50 text-amber-700" />
+            )}
             {lowStock > 0 && (
-              <SummaryPill label="Low stock" value={lowStock} color="bg-red-50 text-red-600" />
+              <SummaryPill label="Low stock" value={lowStock} color="bg-orange-50 text-orange-600" />
             )}
           </div>
         </div>
@@ -180,41 +246,60 @@ export default function ProductsTable({ products }: ProductsTableProps) {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-gray-100 bg-gray-50/70">
                 <tr>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Product</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Status</th>
-                  <th className="hidden px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Vendor</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Price</th>
-                  <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Inventory</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Image</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Product</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Status</th>
+                  <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Vendor</th>
+                  <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Variants</th>
+                  <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Price</th>
+                  <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">Inventory</th>
+                  <th className="hidden px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400 sm:table-cell">SEO</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Optimise</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {visibleRows.map((product) => (
                   <tr key={product.id} className="group transition-colors hover:bg-indigo-50/30">
-                    <td className="px-6 py-4">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-xs font-bold text-indigo-600">
-                          {product.title.charAt(0).toUpperCase()}
-                        </div>
-                        <span className="truncate font-medium text-gray-900 transition-colors group-hover:text-indigo-700">
-                          {product.title}
-                        </span>
-                      </div>
+                    <td className="px-4 py-3">
+                      <ProductThumbnail image={product.images[0]} title={product.title} />
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-4">
+                      <span className="block max-w-[11rem] truncate font-medium text-gray-900 transition-colors group-hover:text-indigo-700">
+                        {product.title}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
                       <StatusBadge status={product.status} />
                     </td>
-                    <td className="hidden px-6 py-4 text-gray-500 sm:table-cell">
+                    <td className="hidden px-4 py-4 text-gray-500 sm:table-cell">
                       {product.vendor || <span className="text-gray-300">—</span>}
                     </td>
-                    <td className="px-6 py-4 font-medium text-gray-700">
+                    <td className="hidden px-4 py-4 sm:table-cell">
+                      <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                        {product.variants.length}
+                      </span>
+                    </td>
+                    <td className="hidden px-4 py-4 font-medium text-gray-700 sm:table-cell">
                       {formatPriceRange(product)}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="hidden px-4 py-4 sm:table-cell">
                       {product.status === 'ARCHIVED' ? (
                         <span className="text-xs text-gray-300">—</span>
                       ) : (
                         <InventoryBar value={product.totalInventory} max={maxInventory} />
                       )}
+                    </td>
+                    <td className="hidden px-4 py-4 sm:table-cell">
+                      <SeoStatus seo={product.seo} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <button
+                        type="button"
+                        aria-label={`Optimise SEO for ${product.title}`}
+                        className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-100"
+                      >
+                        Optimise
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -222,7 +307,6 @@ export default function ProductsTable({ products }: ProductsTableProps) {
             </table>
           </div>
 
-          {/* Pagination — only shown when there are multiple pages */}
           {totalPages > 1 && (
             <Pagination
               page={page}
