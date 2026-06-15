@@ -15,22 +15,12 @@ import {
 } from 'lucide-react';
 import type { Product } from '@/types/shopify';
 import type { ProductAuditResult } from '@/lib/audit/productAudit';
+import type { ProductSuggestion } from '@/types/suggestions';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type FlatProduct = Product;
-
-type ProductSuggestion = {
-  improvedTitle: string;
-  improvedDescription: string;
-  improvedDescriptionHtml: string;
-  improvedSeoTitle: string;
-  improvedSeoDescription: string;
-  suggestedTags: string[];
-  reasoning: string;
-};
 
 type PartialSuggestion = Partial<ProductSuggestion>;
 type SuggestionKey = keyof ProductSuggestion;
@@ -50,7 +40,7 @@ type TagsFieldState =
   | { status: 'complete'; value: string[] };
 
 interface ProductSuggestionsProps {
-  product: FlatProduct;
+  product: Product;
   auditResult: ProductAuditResult;
   savedSuggestion?: ProductSuggestion | null;
   savedExpectedScore?: number | null;
@@ -58,48 +48,73 @@ interface ProductSuggestionsProps {
 }
 
 // ---------------------------------------------------------------------------
-// Incremental JSON parsing
+// Type guards — no `as` casts
 // ---------------------------------------------------------------------------
 
-// Extracts a complete JSON string value. Requires a closing " followed by , or }
-// so we don't falsely match mid-stream (the lookahead prevents premature extraction).
-function extractStringField(buffer: string, key: string): string | undefined {
-  const re = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"(?=[,}])`);
-  const m = re.exec(buffer);
-  if (!m) return undefined;
-  try {
-    return JSON.parse(`"${m[1]}"`) as string;
-  } catch {
-    return m[1];
-  }
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
 }
 
-function extractArrayField(buffer: string, key: string): string[] | undefined {
-  const re = new RegExp(`"${key}"\\s*:\\s*(\\[[^\\]]*\\])`);
-  const m = re.exec(buffer);
-  if (!m) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(m[1]);
-    if (Array.isArray(parsed) && (parsed as unknown[]).every((t) => typeof t === 'string')) {
-      return parsed as string[];
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
+function isStringArray(arr: unknown[]): arr is string[] {
+  return arr.every((t: unknown) => typeof t === 'string');
 }
 
-function parsePartialSuggestion(buffer: string): PartialSuggestion {
-  return {
-    improvedTitle: extractStringField(buffer, 'improvedTitle'),
-    improvedDescription: extractStringField(buffer, 'improvedDescription'),
-    improvedDescriptionHtml: extractStringField(buffer, 'improvedDescriptionHtml'),
-    improvedSeoTitle: extractStringField(buffer, 'improvedSeoTitle'),
-    improvedSeoDescription: extractStringField(buffer, 'improvedSeoDescription'),
-    suggestedTags: extractArrayField(buffer, 'suggestedTags'),
-    reasoning: extractStringField(buffer, 'reasoning'),
-  };
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
 }
+
+function isProductSuggestion(v: unknown): v is ProductSuggestion {
+  if (!isRecord(v)) return false;
+  return (
+    typeof v.improvedTitle === 'string' &&
+    typeof v.improvedDescription === 'string' &&
+    typeof v.improvedDescriptionHtml === 'string' &&
+    typeof v.improvedSeoTitle === 'string' &&
+    typeof v.improvedSeoDescription === 'string' &&
+    Array.isArray(v.suggestedTags) &&
+    isStringArray(v.suggestedTags) &&
+    typeof v.reasoning === 'string'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Incremental JSON parsing — pre-compiled RegExps
+// ---------------------------------------------------------------------------
+
+// Complete-field patterns: require a closing " followed by , or } so we don't
+// falsely match mid-stream content. Compiled once at module load — not per call.
+const COMPLETE_RE: Record<StringSuggestionKey, RegExp> = {
+  improvedTitle:          /"improvedTitle"\s*:\s*"((?:[^"\\]|\\.)*)"\s*(?=[,}])/,
+  improvedDescription:    /"improvedDescription"\s*:\s*"((?:[^"\\]|\\.)*)"\s*(?=[,}])/,
+  improvedDescriptionHtml:/"improvedDescriptionHtml"\s*:\s*"((?:[^"\\]|\\.)*)"\s*(?=[,}])/,
+  improvedSeoTitle:       /"improvedSeoTitle"\s*:\s*"((?:[^"\\]|\\.)*)"\s*(?=[,}])/,
+  improvedSeoDescription: /"improvedSeoDescription"\s*:\s*"((?:[^"\\]|\\.)*)"\s*(?=[,}])/,
+  reasoning:              /"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)"\s*(?=[,}])/,
+};
+
+// Partial-field patterns: match from the opening " to end-of-buffer (streaming).
+const PARTIAL_RE: Record<StringSuggestionKey, RegExp> = {
+  improvedTitle:          /"improvedTitle"\s*:\s*"([\s\S]*)/,
+  improvedDescription:    /"improvedDescription"\s*:\s*"([\s\S]*)/,
+  improvedDescriptionHtml:/"improvedDescriptionHtml"\s*:\s*"([\s\S]*)/,
+  improvedSeoTitle:       /"improvedSeoTitle"\s*:\s*"([\s\S]*)/,
+  improvedSeoDescription: /"improvedSeoDescription"\s*:\s*"([\s\S]*)/,
+  reasoning:              /"reasoning"\s*:\s*"([\s\S]*)/,
+};
+
+// Tags: match a complete JSON array.
+const TAGS_RE = /"suggestedTags"\s*:\s*(\[[^\]]*\])/;
+
+// Pre-computed key strings used for fast lastIndexOf in detectStreamingField.
+const FIELD_KEY: Record<SuggestionKey, string> = {
+  improvedTitle:           '"improvedTitle"',
+  improvedDescription:     '"improvedDescription"',
+  improvedDescriptionHtml: '"improvedDescriptionHtml"',
+  improvedSeoTitle:        '"improvedSeoTitle"',
+  improvedSeoDescription:  '"improvedSeoDescription"',
+  suggestedTags:           '"suggestedTags"',
+  reasoning:               '"reasoning"',
+};
 
 const FIELD_ORDER: SuggestionKey[] = [
   'improvedTitle',
@@ -121,6 +136,54 @@ function decodePartial(raw: string): string {
     .replace(/\\\\/g, '\\');
 }
 
+function extractStringField(buffer: string, key: StringSuggestionKey): string | undefined {
+  const m = COMPLETE_RE[key].exec(buffer);
+  if (!m) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(`"${m[1]}"`);
+    return typeof parsed === 'string' ? parsed : m[1];
+  } catch {
+    return m[1];
+  }
+}
+
+function extractArrayField(buffer: string): string[] | undefined {
+  const m = TAGS_RE.exec(buffer);
+  if (!m) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(m[1]);
+    if (Array.isArray(parsed) && isStringArray(parsed)) return parsed;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Skip fields already in `complete` — avoids rescanning the entire buffer for
+// every token for fields that are already resolved (prevents O(n²) complexity).
+function parsePartialSuggestion(
+  buffer: string,
+  complete: ReadonlySet<SuggestionKey>,
+): PartialSuggestion {
+  const result: PartialSuggestion = {};
+  const stringKeys: StringSuggestionKey[] = [
+    'improvedTitle',
+    'improvedDescription',
+    'improvedDescriptionHtml',
+    'improvedSeoTitle',
+    'improvedSeoDescription',
+    'reasoning',
+  ];
+  for (const key of stringKeys) {
+    if (complete.has(key)) continue;
+    result[key] = extractStringField(buffer, key);
+  }
+  if (!complete.has('suggestedTags')) {
+    result.suggestedTags = extractArrayField(buffer);
+  }
+  return result;
+}
+
 function detectStreamingField(
   buffer: string,
   partial: PartialSuggestion,
@@ -129,7 +192,7 @@ function detectStreamingField(
   let lastIdx = -1;
 
   for (const field of FIELD_ORDER) {
-    const idx = buffer.lastIndexOf(`"${field}"`);
+    const idx = buffer.lastIndexOf(FIELD_KEY[field]);
     if (idx > lastIdx) {
       lastIdx = idx;
       lastField = field;
@@ -143,28 +206,9 @@ function detectStreamingField(
     return { field: lastField, value: '' };
   }
 
-  const re = new RegExp(`"${lastField}"\\s*:\\s*"([\\s\\S]*)`);
-  const m = re.exec(buffer);
+  // TypeScript narrows lastField to StringSuggestionKey after the 'suggestedTags' guard above.
+  const m = PARTIAL_RE[lastField].exec(buffer);
   return { field: lastField, value: m ? decodePartial(m[1]) : '' };
-}
-
-// ---------------------------------------------------------------------------
-// Type guard
-// ---------------------------------------------------------------------------
-
-function isProductSuggestion(v: unknown): v is ProductSuggestion {
-  if (typeof v !== 'object' || v === null) return false;
-  const o = v as Record<string, unknown>;
-  return (
-    typeof o.improvedTitle === 'string' &&
-    typeof o.improvedDescription === 'string' &&
-    typeof o.improvedDescriptionHtml === 'string' &&
-    typeof o.improvedSeoTitle === 'string' &&
-    typeof o.improvedSeoDescription === 'string' &&
-    Array.isArray(o.suggestedTags) &&
-    (o.suggestedTags as unknown[]).every((t) => typeof t === 'string') &&
-    typeof o.reasoning === 'string'
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -245,7 +289,6 @@ function getStringFieldState(
   return { status: 'pending' };
 }
 
-// Suggested side of a single-line text field with skeleton → streaming cursor → done states.
 function SuggestedTextField({
   fieldKey,
   partial,
@@ -290,7 +333,7 @@ function SuggestedTextField({
 // ---------------------------------------------------------------------------
 
 type PanelProps = {
-  product: FlatProduct;
+  product: Product;
   partial: PartialSuggestion;
   streamField: SuggestionKey | null;
   streamValue: string;
@@ -330,19 +373,19 @@ function DescriptionPanel({ product, partial, streamField, streamValue }: PanelP
         Product Description
       </p>
       <div className="space-y-3">
-        {/* Current */}
+        {/* Current — Shopify HTML sanitized before rendering */}
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
           <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">Current</p>
           {product.descriptionHtml ? (
             <div
               className="prose prose-sm max-w-none text-gray-600"
-              dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(product.descriptionHtml) }}
             />
           ) : (
             <p className="text-sm italic text-gray-400">No description set.</p>
           )}
         </div>
-        {/* Suggested */}
+        {/* Suggested — AI HTML sanitized before rendering */}
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">
@@ -372,7 +415,7 @@ function DescriptionPanel({ product, partial, streamField, streamValue }: PanelP
             ) : (
               <div
                 className="prose prose-sm max-w-none text-gray-800"
-                dangerouslySetInnerHTML={{ __html: htmlState.value }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(htmlState.value) }}
               />
             )
           ) : textState.status === 'complete' ? (
@@ -643,7 +686,13 @@ function CardTitle({ pulsing = false }: { pulsing?: boolean }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function ProductSuggestions({ product, auditResult, savedSuggestion, savedExpectedScore, auditLogId }: ProductSuggestionsProps) {
+export default function ProductSuggestions({
+  product,
+  auditResult,
+  savedSuggestion,
+  savedExpectedScore,
+  auditLogId,
+}: ProductSuggestionsProps) {
   const [status, setStatus] = useState<Status>(savedSuggestion ? 'complete' : 'idle');
   const [partial, setPartial] = useState<PartialSuggestion>(savedSuggestion ?? {});
   const [streamField, setStreamField] = useState<SuggestionKey | null>(null);
@@ -652,6 +701,9 @@ export default function ProductSuggestions({ product, auditResult, savedSuggesti
   const [expectedScore, setExpectedScore] = useState<number | null>(savedExpectedScore ?? null);
   const abortRef = useRef<AbortController | null>(null);
   const bufferRef = useRef('');
+  // Tracks which fields have been fully resolved to skip re-scanning them on
+  // every token (avoids O(n²) regex work as the buffer grows).
+  const completeFieldsRef = useRef<Set<SuggestionKey>>(new Set());
 
   const run = useCallback(async () => {
     abortRef.current?.abort();
@@ -665,6 +717,7 @@ export default function ProductSuggestions({ product, auditResult, savedSuggesti
     setExpectedScore(null);
     setActiveTab('title');
     bufferRef.current = '';
+    completeFieldsRef.current = new Set();
 
     let response: Response;
     try {
@@ -678,7 +731,7 @@ export default function ProductSuggestions({ product, auditResult, savedSuggesti
         signal: ctrl.signal,
       });
     } catch (err) {
-      if ((err as { name?: string }).name === 'AbortError') return;
+      if (isAbortError(err)) return;
       setStatus('error');
       return;
     }
@@ -695,7 +748,8 @@ export default function ProductSuggestions({ product, auditResult, savedSuggesti
     let sseBuffer = '';
 
     try {
-      while (true) {
+      let streamDone = false;
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -707,7 +761,6 @@ export default function ProductSuggestions({ product, auditResult, savedSuggesti
           const trimmed = block.trim();
           if (!trimmed) continue;
 
-          // Parse SSE block — may contain an optional "event:" line before "data:".
           let sseEventType: string | undefined;
           let sseData: string | undefined;
           for (const line of trimmed.split('\n')) {
@@ -716,20 +769,33 @@ export default function ProductSuggestions({ product, auditResult, savedSuggesti
           }
           if (!sseData) continue;
 
-          // Handle the score event emitted by the server after DB save.
           if (sseEventType === 'score') {
             try {
-              const parsed = JSON.parse(sseData) as { current: number; expected: number };
-              setExpectedScore(parsed.expected);
+              const scorePayload: unknown = JSON.parse(sseData);
+              if (
+                isRecord(scorePayload) &&
+                typeof scorePayload.expected === 'number'
+              ) {
+                setExpectedScore(scorePayload.expected);
+              }
             } catch { /* ignore malformed score event */ }
             continue;
           }
 
-          if (sseData === '[DONE]') break;
+          if (sseData === '[DONE]') {
+            // Set flag and break inner loop — outer while checks !streamDone
+            streamDone = true;
+            break;
+          }
 
           bufferRef.current += sseData;
 
-          const newPartial = parsePartialSuggestion(bufferRef.current);
+          const newPartial = parsePartialSuggestion(bufferRef.current, completeFieldsRef.current);
+          // Mark newly completed fields so future iterations skip them.
+          for (const key of FIELD_ORDER) {
+            if (newPartial[key] !== undefined) completeFieldsRef.current.add(key);
+          }
+
           const detected = detectStreamingField(bufferRef.current, newPartial);
           setPartial(newPartial);
           setStreamField(detected.field);
@@ -738,7 +804,7 @@ export default function ProductSuggestions({ product, auditResult, savedSuggesti
       }
       sseBuffer += decoder.decode();
     } catch (err) {
-      if ((err as { name?: string }).name === 'AbortError') return;
+      if (isAbortError(err)) return;
       setStatus('error');
       return;
     }

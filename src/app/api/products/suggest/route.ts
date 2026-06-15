@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import OpenAI from 'openai';
 import type { Stream } from 'openai/streaming';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
@@ -5,30 +6,114 @@ import type { Product } from '@/types/shopify';
 import type { ProductAuditResult, ProductAuditCheck } from '@/lib/audit/productAudit';
 import { auditProduct, type AuditCategory } from '@/lib/audit/productAudit';
 import { prisma } from '@/lib/prisma';
+import type { ProductSuggestion } from '@/types/suggestions';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 
 export const dynamic = 'force-dynamic';
 
 // ---------------------------------------------------------------------------
-// Types
+// Zod schemas — single source of truth for request body validation
 // ---------------------------------------------------------------------------
 
-type FlatProduct = Product;
+const MoneyV2Schema = z.object({
+  amount: z.string(),
+  currencyCode: z.string(),
+});
 
-type SuggestRequestBody = {
-  product: FlatProduct;
-  auditResult: ProductAuditResult;
-  auditLogId?: string | null;
-};
+const ProductSchema = z.object({
+  id: z.string().min(1).max(200),
+  title: z.string(),
+  descriptionHtml: z.string(),
+  status: z.enum(['ACTIVE', 'ARCHIVED', 'DRAFT']),
+  vendor: z.string(),
+  productType: z.string(),
+  tags: z.array(z.string()),
+  onlineStoreUrl: z.string().nullable(),
+  seo: z.object({
+    title: z.string().nullable(),
+    description: z.string().nullable(),
+  }),
+  totalInventory: z.number(),
+  priceRangeV2: z.object({
+    minVariantPrice: MoneyV2Schema,
+    maxVariantPrice: MoneyV2Schema,
+  }),
+  variants: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    price: z.string(),
+    inventoryQuantity: z.number().nullable(),
+    sku: z.string().nullable(),
+  })),
+  images: z.array(z.object({
+    url: z.string(),
+    altText: z.string().nullable(),
+  })),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
 
-export type ProductSuggestion = {
-  improvedTitle: string;
-  improvedDescription: string;
-  improvedDescriptionHtml: string;
-  improvedSeoTitle: string;
-  improvedSeoDescription: string;
-  suggestedTags: string[];
-  reasoning: string;
-};
+const AuditCategorySchema = z.enum(['title', 'description', 'seo', 'media', 'metadata']);
+
+const ProductAuditCheckSchema = z.object({
+  id: z.string(),
+  category: AuditCategorySchema,
+  label: z.string(),
+  passed: z.boolean(),
+  score: z.number(),
+  maxScore: z.number(),
+  suggestion: z.string().optional(),
+});
+
+const CategoryScoreSchema = z.object({ score: z.number(), maxScore: z.number() });
+
+const ProductAuditResultSchema = z.object({
+  productId: z.string(),
+  checks: z.array(ProductAuditCheckSchema),
+  totalScore: z.number(),
+  grade: z.enum(['A', 'B', 'C', 'D', 'F']),
+  categoryScores: z.object({
+    title: CategoryScoreSchema,
+    description: CategoryScoreSchema,
+    seo: CategoryScoreSchema,
+    media: CategoryScoreSchema,
+    metadata: CategoryScoreSchema,
+  }),
+});
+
+const SuggestBodySchema = z.object({
+  product: ProductSchema,
+  auditResult: ProductAuditResultSchema,
+  auditLogId: z.string().nullable().optional(),
+});
+
+type SuggestRequestBody = z.infer<typeof SuggestBodySchema>;
+
+// ---------------------------------------------------------------------------
+// Type guards (retained for Groq error handling and response validation)
+// ---------------------------------------------------------------------------
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+function hasHttpStatus(e: unknown): e is { status: number } {
+  return isRecord(e) && 'status' in e && typeof e.status === 'number';
+}
+
+function isProductSuggestion(v: unknown): v is ProductSuggestion {
+  if (!isRecord(v)) return false;
+  return (
+    typeof v.improvedTitle === 'string' &&
+    typeof v.improvedDescription === 'string' &&
+    typeof v.improvedDescriptionHtml === 'string' &&
+    typeof v.improvedSeoTitle === 'string' &&
+    typeof v.improvedSeoDescription === 'string' &&
+    Array.isArray(v.suggestedTags) &&
+    v.suggestedTags.every((t: unknown) => typeof t === 'string') &&
+    typeof v.reasoning === 'string'
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Prompt helpers
@@ -39,6 +124,23 @@ function stripHtmlForPrompt(html: string): string {
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// Hard-cap each product field before injecting into the prompt.
+// Prevents oversized inputs from consuming excessive tokens and limits the
+// surface area for prompt injection via crafted product data.
+const PROMPT_LIMITS = {
+  title: 200,
+  desc: 10_000,
+  seoTitle: 300,
+  seoDesc: 500,
+  vendor: 200,
+  productType: 200,
+  tag: 100,
+} satisfies Record<string, number>;
+
+function cap(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
 // Checks in these categories can be fixed by rewriting copy.
@@ -101,22 +203,25 @@ const SYSTEM_PROMPT = [
 // User prompt builder
 // ---------------------------------------------------------------------------
 
-function buildUserPrompt(product: FlatProduct, auditResult: ProductAuditResult): string {
+function buildUserPrompt(product: Product, auditResult: ProductAuditResult): string {
   const plainDesc = stripHtmlForPrompt(product.descriptionHtml);
   const { categoryScores, checks, totalScore, grade } = auditResult;
 
   const failedChecks = checks.filter((c) => !c.passed);
 
-  // Separate what the AI can fix vs. what requires manual Shopify Admin action.
-  const fixable = [...failedChecks.filter(isCopyFixable)].sort((a, b) => b.maxScore - a.maxScore);
-  const manualOnly = [...failedChecks.filter((c) => !isCopyFixable(c))].sort(
-    (a, b) => b.maxScore - a.maxScore,
-  );
+  // Single-pass partition — avoids iterating failedChecks twice.
+  const fixable: ProductAuditCheck[] = [];
+  const manualOnly: ProductAuditCheck[] = [];
+  for (const c of failedChecks) {
+    if (isCopyFixable(c)) fixable.push(c);
+    else manualOnly.push(c);
+  }
+  fixable.sort((a, b) => b.maxScore - a.maxScore);
+  manualOnly.sort((a, b) => b.maxScore - a.maxScore);
 
   const fixablePoints = fixable.reduce((sum, c) => sum + c.maxScore, 0);
   const targetScore = totalScore + fixablePoints;
 
-  // Index per-category for per-field directives.
   const failedByCategory: Record<string, ProductAuditCheck[]> = {};
   for (const c of failedChecks) {
     (failedByCategory[c.category] ??= []).push(c);
@@ -133,12 +238,23 @@ function buildUserPrompt(product: FlatProduct, auditResult: ProductAuditResult):
   const catScore = (cat: 'title' | 'description' | 'seo') =>
     `${categoryScores[cat].score}/${categoryScores[cat].maxScore}`;
 
+  // Truncate every field before embedding in the prompt to reduce the prompt
+  // injection surface area and keep token usage predictable.
+  const safeTitle = cap(product.title, PROMPT_LIMITS.title);
+  const safeDesc = cap(plainDesc, PROMPT_LIMITS.desc);
+  const safeDescHtml = cap(product.descriptionHtml, PROMPT_LIMITS.desc);
+  const safeSeoTitle = product.seo.title ? cap(product.seo.title, PROMPT_LIMITS.seoTitle) : null;
+  const safeSeoDesc = product.seo.description ? cap(product.seo.description, PROMPT_LIMITS.seoDesc) : null;
+  const safeVendor = cap(product.vendor, PROMPT_LIMITS.vendor);
+  const safeProductType = cap(product.productType, PROMPT_LIMITS.productType);
+  const safeTags = product.tags.map((t) => cap(t, PROMPT_LIMITS.tag));
+
   const directives = [
     fieldDirective(
       'improvedTitle',
       titleFailed,
       `title ${catScore('title')}`,
-      `"${product.title}"`,
+      `"${safeTitle}"`,
       'Rewrite to pass ALL checks: 20–70 characters, no generic prefix (New/Best/Buy/Cheap/Top), at least 2 words with a descriptor, no ALL CAPS. Keep the core product name.',
     ),
 
@@ -146,7 +262,7 @@ function buildUserPrompt(product: FlatProduct, auditResult: ProductAuditResult):
       'improvedDescription + improvedDescriptionHtml',
       descFailed,
       `description ${catScore('description')}`,
-      `plain="${plainDesc || '(empty)'}" html="${product.descriptionHtml || '(empty)'}"`,
+      `plain="${safeDesc || '(empty)'}" html="${safeDescHtml || '(empty)'}"`,
       'Rewrite to pass ALL checks: 300+ characters, 2+ <p> paragraphs, no placeholder text. Preserve all factual product details.',
     ),
 
@@ -154,29 +270,27 @@ function buildUserPrompt(product: FlatProduct, auditResult: ProductAuditResult):
       'improvedSeoTitle',
       seoTitleFailed,
       `seo-title ${catScore('seo')}`,
-      product.seo.title ? `"${product.seo.title}"` : '"" (not set)',
-      `Write an SEO title that is EXACTLY 30–60 characters. Current: ${product.seo.title?.length ?? 0} chars.`,
+      safeSeoTitle ? `"${safeSeoTitle}"` : '"" (not set)',
+      `Write an SEO title that is EXACTLY 30–60 characters. Current: ${safeSeoTitle?.length ?? 0} chars.`,
     ),
 
     fieldDirective(
       'improvedSeoDescription',
       seoDescFailed,
       `seo-desc ${catScore('seo')}`,
-      product.seo.description ? `"${product.seo.description}"` : '"" (not set)',
-      `Write an SEO description that is EXACTLY 120–160 characters. Current: ${product.seo.description?.length ?? 0} chars.`,
+      safeSeoDesc ? `"${safeSeoDesc}"` : '"" (not set)',
+      `Write an SEO description that is EXACTLY 120–160 characters. Current: ${safeSeoDesc?.length ?? 0} chars.`,
     ),
 
     fieldDirective(
       'suggestedTags',
       tagsFailed,
       `tags ${categoryScores['metadata'].score}/${categoryScores['metadata'].maxScore}`,
-      `[${product.tags.map((t) => `"${t}"`).join(', ')}]`,
-      `Suggest 5–10 relevant lowercase tags. Preserve useful existing tags: [${product.tags.join(', ')}].`,
+      `[${safeTags.map((t) => `"${t}"`).join(', ')}]`,
+      `Suggest 5–10 relevant lowercase tags. Preserve useful existing tags: [${safeTags.join(', ')}].`,
     ),
   ].join('\n\n');
 
-  // Build upfront failure summary so the model sees the full picture before
-  // reading per-field directives.
   const fixableSummary =
     fixable.length > 0
       ? [
@@ -197,14 +311,14 @@ function buildUserPrompt(product: FlatProduct, auditResult: ProductAuditResult):
       : '';
 
   return `PRODUCT:
-Title: "${product.title}"
-Description (plain): ${plainDesc || '(empty)'}
-Description (HTML): ${product.descriptionHtml || '(empty)'}
-SEO Title: ${product.seo.title ? `"${product.seo.title}"` : '(not set)'}
-SEO Description: ${product.seo.description ? `"${product.seo.description}"` : '(not set)'}
-Vendor: ${product.vendor || '(not set)'}
-Product Type: ${product.productType || '(not set)'}
-Tags: [${product.tags.map((t) => `"${t}"`).join(', ')}]
+Title: "${safeTitle}"
+Description (plain): ${safeDesc || '(empty)'}
+Description (HTML): ${safeDescHtml || '(empty)'}
+SEO Title: ${safeSeoTitle ? `"${safeSeoTitle}"` : '(not set)'}
+SEO Description: ${safeSeoDesc ? `"${safeSeoDesc}"` : '(not set)'}
+Vendor: ${safeVendor || '(not set)'}
+Product Type: ${safeProductType || '(not set)'}
+Tags: [${safeTags.map((t) => `"${t}"`).join(', ')}]
 
 AUDIT SCORE: ${totalScore}/100 — Grade: ${grade}
 ${fixableSummary}${manualSummary ? '\n' + manualSummary : ''}
@@ -219,8 +333,8 @@ reasoning: One paragraph stating which checks were fixed, estimated score gain f
 // Expected score — re-run audit against the projected (suggested) product
 // ---------------------------------------------------------------------------
 
-function computeExpectedScore(product: FlatProduct, suggestion: ProductSuggestion): number {
-  const projected: FlatProduct = {
+function computeExpectedScore(product: Product, suggestion: ProductSuggestion): number {
+  const projected: Product = {
     ...product,
     title: suggestion.improvedTitle,
     descriptionHtml:
@@ -242,25 +356,29 @@ async function createGroqStream(
   client: OpenAI,
   systemPrompt: string,
   userContent: string,
+  signal: AbortSignal,
   maxRetries = 2,
 ): Promise<Stream<ChatCompletionChunk>> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system' as const, content: systemPrompt },
-          { role: 'user' as const, content: userContent },
-        ],
-        max_tokens: 2048,
-        stream: true as const,
-        temperature: 0.3,
-      });
+      return await client.chat.completions.create(
+        {
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system' as const, content: systemPrompt },
+            { role: 'user' as const, content: userContent },
+          ],
+          max_tokens: 2048,
+          stream: true as const,
+          temperature: 0.3,
+        },
+        { signal },
+      );
     } catch (err: unknown) {
       lastError = err;
-      const httpStatus = (err as { status?: number })?.status;
+      const httpStatus = hasHttpStatus(err) ? err.status : undefined;
       const isRetryable =
         attempt < maxRetries &&
         (httpStatus === 429 || (typeof httpStatus === 'number' && httpStatus >= 500));
@@ -310,61 +428,21 @@ function sanitiseRawJson(raw: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Type guard
-// ---------------------------------------------------------------------------
-
-function isProductSuggestion(v: unknown): v is ProductSuggestion {
-  if (typeof v !== 'object' || v === null) return false;
-  const o = v as Record<string, unknown>;
-  return (
-    typeof o.improvedTitle === 'string' &&
-    typeof o.improvedDescription === 'string' &&
-    typeof o.improvedDescriptionHtml === 'string' &&
-    typeof o.improvedSeoTitle === 'string' &&
-    typeof o.improvedSeoDescription === 'string' &&
-    Array.isArray(o.suggestedTags) &&
-    (o.suggestedTags as unknown[]).every((t) => typeof t === 'string') &&
-    typeof o.reasoning === 'string'
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Input validation
-// ---------------------------------------------------------------------------
-
-function isValidBody(raw: unknown): raw is SuggestRequestBody {
-  if (typeof raw !== 'object' || raw === null) return false;
-  const body = raw as Record<string, unknown>;
-
-  const product = body.product;
-  const auditResult = body.auditResult;
-
-  if (typeof product !== 'object' || product === null) return false;
-  if (typeof auditResult !== 'object' || auditResult === null) return false;
-
-  const p = product as Record<string, unknown>;
-  const a = auditResult as Record<string, unknown>;
-
-  return (
-    typeof p.id === 'string' &&
-    typeof p.title === 'string' &&
-    typeof p.descriptionHtml === 'string' &&
-    typeof p.vendor === 'string' &&
-    typeof p.productType === 'string' &&
-    Array.isArray(p.tags) &&
-    typeof a.productId === 'string' &&
-    typeof a.totalScore === 'number' &&
-    typeof a.grade === 'string' &&
-    Array.isArray(a.checks)
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request): Promise<Response> {
-  if (request.headers.get('x-requested-with') !== 'XMLHttpRequest') {
+  // CSRF guard: require X-Requested-With AND verify the Origin matches this host.
+  // Origin is absent on same-origin navigations in most browsers; when present it
+  // must match the Host header, blocking cross-origin fetch from attacker domains.
+  const origin = request.headers.get('origin');
+  const host = request.headers.get('host') ?? '';
+  const isSameOrigin =
+    origin === null ||
+    origin === `https://${host}` ||
+    origin === `http://${host}`;
+
+  if (!isSameOrigin || request.headers.get('x-requested-with') !== 'XMLHttpRequest') {
     return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -380,24 +458,30 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  if (!isValidBody(rawBody)) {
+  const parseResult = SuggestBodySchema.safeParse(rawBody);
+  if (!parseResult.success) {
     return Response.json(
-      { error: 'Request body must contain { product: FlatProduct; auditResult: ProductAuditResult }' },
-      { status: 422 },
+      { error: 'Invalid request body', issues: parseResult.error.issues },
+      { status: 400 },
     );
   }
 
-  const { product, auditResult, auditLogId } = rawBody;
+  const { product, auditResult, auditLogId } = parseResult.data;
 
   const client = new OpenAI({
     baseURL: 'https://api.groq.com/openai/v1',
     apiKey,
   });
 
+  // Own AbortController so cancel() can abort the upstream request without
+  // relying on the undocumented Stream.controller property.
+  const streamAbort = new AbortController();
+
   const groqStream = await createGroqStream(
     client,
     SYSTEM_PROMPT,
     buildUserPrompt(product, auditResult),
+    streamAbort.signal,
   ).catch((err: unknown) => {
     console.error('[/api/products/suggest] Groq failed after retries:', err);
     return null;
@@ -411,7 +495,6 @@ export async function POST(request: Request): Promise<Response> {
 
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
-      // Emits a plain data event (no event type) or a named SSE event.
       function emit(data: string, eventType?: string): void {
         const prefix = eventType ? `event: ${eventType}\n` : '';
         controller.enqueue(encoder.encode(`${prefix}data: ${data}\n\n`));
@@ -435,31 +518,35 @@ export async function POST(request: Request): Promise<Response> {
         return;
       }
 
-      // ── 2. Parse, re-audit, and persist ─────────────────────────────────
+      // ── 2. Parse, sanitize, re-audit, and persist ────────────────────────
       // All DB work and the score event MUST happen before emit('[DONE]') and
       // controller.close() — Next.js drops async work after close().
       try {
         const parsed: unknown = JSON.parse(sanitiseRawJson(fullContent.trim()));
-        const valid = isProductSuggestion(parsed);
 
-        if (valid) {
-          const expectedScore = computeExpectedScore(product, parsed);
+        if (isProductSuggestion(parsed)) {
+          // Sanitize AI-generated HTML before storing or scoring — eliminates
+          // any XSS vectors injected via crafted product data (prompt injection).
+          const safeHtml = sanitizeHtml(parsed.improvedDescriptionHtml);
+          const safeParsed: ProductSuggestion = { ...parsed, improvedDescriptionHtml: safeHtml };
+
+          const expectedScore = computeExpectedScore(product, safeParsed);
 
           await prisma.productSuggestion.create({
             data: {
               productId: product.id,
               productTitle: product.title,
               originalTitle: product.title,
-              improvedTitle: parsed.improvedTitle,
+              improvedTitle: safeParsed.improvedTitle,
               originalDescription: stripHtmlForPrompt(product.descriptionHtml),
-              improvedDescription: parsed.improvedDescription,
-              improvedDescriptionHtml: parsed.improvedDescriptionHtml,
+              improvedDescription: safeParsed.improvedDescription,
+              improvedDescriptionHtml: safeHtml,
               originalSeoTitle: product.seo.title || null,
-              improvedSeoTitle: parsed.improvedSeoTitle,
+              improvedSeoTitle: safeParsed.improvedSeoTitle,
               originalSeoDescription: product.seo.description || null,
-              improvedSeoDescription: parsed.improvedSeoDescription,
-              suggestedTags: parsed.suggestedTags,
-              reasoning: parsed.reasoning,
+              improvedSeoDescription: safeParsed.improvedSeoDescription,
+              suggestedTags: safeParsed.suggestedTags,
+              reasoning: safeParsed.reasoning,
               auditScore: auditResult.totalScore,
               expectedScore,
               auditLogId: typeof auditLogId === 'string' ? auditLogId : null,
@@ -467,13 +554,13 @@ export async function POST(request: Request): Promise<Response> {
             },
           });
 
-          // Send the before/after score so the client can show the improvement.
           emit(
             JSON.stringify({ current: auditResult.totalScore, expected: expectedScore }),
             'score',
           );
         } else {
-          console.warn('[suggest] isProductSuggestion failed — keys:', Object.keys(parsed as object));
+          const parsedKeys = isRecord(parsed) ? Object.keys(parsed) : [];
+          console.warn('[suggest] isProductSuggestion failed — keys:', parsedKeys);
         }
       } catch (err) {
         console.error('[suggest] DB save / re-audit failed:', err);
@@ -484,7 +571,7 @@ export async function POST(request: Request): Promise<Response> {
       controller.close();
     },
     cancel() {
-      groqStream.controller.abort();
+      streamAbort.abort();
     },
   });
 

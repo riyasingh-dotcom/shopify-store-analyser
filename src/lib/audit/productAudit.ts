@@ -276,19 +276,23 @@ export function auditProduct(product: Product): ProductAuditResult {
 
   const totalScore = checks.reduce((sum, c) => sum + c.score, 0);
 
-  const categories: AuditCategory[] = ['title', 'description', 'seo', 'media', 'metadata'];
-  const categoryScores = Object.fromEntries(
-    categories.map((cat) => {
-      const catChecks = checks.filter((c) => c.category === cat);
-      return [
-        cat,
-        {
-          score: catChecks.reduce((s, c) => s + c.score, 0),
-          maxScore: catChecks.reduce((s, c) => s + c.maxScore, 0),
-        },
-      ];
-    }),
-  ) as Record<AuditCategory, { score: number; maxScore: number }>;
+  // Build categoryScores with an explicit typed initial value — avoids an `as` cast
+  // that would hide a mismatch if the category list ever diverges from AuditCategory.
+  const categoryScores: Record<AuditCategory, { score: number; maxScore: number }> = {
+    title:       { score: 0, maxScore: 0 },
+    description: { score: 0, maxScore: 0 },
+    seo:         { score: 0, maxScore: 0 },
+    media:       { score: 0, maxScore: 0 },
+    metadata:    { score: 0, maxScore: 0 },
+  };
+  const auditCategories: AuditCategory[] = ['title', 'description', 'seo', 'media', 'metadata'];
+  for (const cat of auditCategories) {
+    const catChecks = checks.filter((c) => c.category === cat);
+    categoryScores[cat] = {
+      score: catChecks.reduce((s, c) => s + c.score, 0),
+      maxScore: catChecks.reduce((s, c) => s + c.maxScore, 0),
+    };
+  }
 
   return {
     productId: product.id,
