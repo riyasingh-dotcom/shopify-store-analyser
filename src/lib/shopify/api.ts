@@ -10,7 +10,7 @@
  */
 
 import { shopifyFetch, isMockMode } from './client';
-import { SHOP_QUERY, PRODUCTS_QUERY, ORDERS_QUERY } from './queries';
+import { SHOP_QUERY, PRODUCTS_QUERY, ORDERS_QUERY, ORDERS_DETAIL_QUERY } from './queries';
 import type {
   ShopInfo,
   Product,
@@ -19,6 +19,8 @@ import type {
   ShopQuery,
   ProductsQuery,
   OrdersQuery,
+  GraphQLOrder,
+  OrdersDetailResponse,
 } from '@/types/shopify';
 
 /** Flattens Shopify connection sub-objects (variants, images) into plain arrays. */
@@ -287,5 +289,26 @@ export async function getOrders(maxCount = 250): Promise<Order[]> {
   } while (cursor && all.length < maxCount);
 
   return all;
+}
+
+export async function getOrdersGraphQL(
+  cursor?: string,
+): Promise<{ orders: GraphQLOrder[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } }> {
+  const variables: Record<string, unknown> = { first: 50 };
+  if (cursor !== undefined) variables.after = cursor;
+
+  const { data, error } = await shopifyFetch<OrdersDetailResponse>({
+    query: ORDERS_DETAIL_QUERY,
+    variables,
+  });
+
+  if (error !== null || data === null) {
+    throw new Error(error ?? 'Failed to fetch detailed orders');
+  }
+
+  return {
+    orders: data.orders.edges.map(({ node }) => node),
+    pageInfo: data.orders.pageInfo,
+  };
 }
 

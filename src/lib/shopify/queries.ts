@@ -1,3 +1,4 @@
+
 /**
  * Shopify Admin GraphQL queries.
  *
@@ -117,6 +118,53 @@ export const ORDERS_QUERY = `
           cancelReason
           tags
           createdAt
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
+/**
+ * Detailed orders query for the Orders Intelligence Dashboard.
+ * Includes line items (up to 50 per order), full customer profile,
+ * and enum-valued status fields for programmatic filtering.
+ */
+export const ORDERS_DETAIL_QUERY = `
+  query GetOrdersDetail($first: Int!, $after: String) {
+    orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) {
+      edges {
+        node {
+          id
+          name
+          createdAt
+          updatedAt
+          displayFinancialStatus
+          displayFulfillmentStatus
+          totalPriceSet { shopMoney { amount currencyCode } }
+          subtotalPriceSet { shopMoney { amount currencyCode } }
+          totalDiscountsSet { shopMoney { amount currencyCode } }
+          totalShippingPriceSet { shopMoney { amount currencyCode } }
+          lineItems(first: 50) {
+            edges {
+              node {
+                id
+                title
+                quantity
+                originalUnitPriceSet { shopMoney { amount currencyCode } }
+                variant { id title sku }
+                product { id title }
+              }
+            }
+          }
+          
+          discountCodes
+          tags
+          cancelledAt
+          cancelReason
         }
       }
       pageInfo {

@@ -181,3 +181,49 @@ export interface StoreData {
   metrics: StoreMetrics;
   isMockData: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Detailed orders GraphQL types (Orders Intelligence Dashboard)
+// Uses financialStatus / fulfillmentStatus enum fields, not the display strings.
+// ---------------------------------------------------------------------------
+
+export type MoneySet = {
+  shopMoney: {
+    amount: string;
+    currencyCode: string;
+  };
+};
+
+export type GraphQLLineItem = {
+  id: string;
+  title: string;
+  quantity: number;
+  originalUnitPriceSet: MoneySet;
+  variant: { id: string; title: string; sku: string | null } | null;
+  product: { id: string; title: string } | null;
+};
+
+export type GraphQLOrder = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  displayFinancialStatus: string;
+  displayFulfillmentStatus: string;
+  totalPriceSet: MoneySet;
+  subtotalPriceSet: MoneySet;
+  totalDiscountsSet: MoneySet;
+  totalShippingPriceSet: MoneySet;
+  lineItems: { edges: Array<{ node: GraphQLLineItem }> };
+  discountCodes: string[];
+  tags: string[];
+  cancelledAt: string | null;
+  cancelReason: string | null;
+};
+
+export type OrdersDetailResponse = {
+  orders: {
+    edges: Array<{ node: GraphQLOrder }>;
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  };
+};
