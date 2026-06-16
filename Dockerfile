@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # ---- Base ----
 FROM node:20-alpine AS base
 # openssl: Prisma engine TLS; ca-certificates: Node fetch to Shopify/Groq APIs
