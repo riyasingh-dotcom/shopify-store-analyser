@@ -1,28 +1,39 @@
 services:
-  # Optional local Postgres — only starts when you explicitly use --profile local-db.
-  # By default the app reads DATABASE_URL from .env.local (your cloud DB).
+  # ── Database (optional local override) ──────────────────────────────────────
+  # Only starts when you explicitly pass --profile local-db.
+  # By default the app uses DATABASE_URL from .env.local (Supabase).
+  # To use local Postgres, point DATABASE_URL to:
+  #   postgresql://dev:devpassword@db:5432/shopify_analyser
   db:
     profiles: [local-db]
-    image: postgres:16-alpine
+    image: postgres:15-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: shopify_analyser
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: devpassword
     volumes:
+      # Separate dev volume — wipe with `docker compose -f docker-compose.dev.yml down -v`
       - postgres_data_dev:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U dev"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # ── Application (hot-reload dev mode) ───────────────────────────────────────
+  # Builds only to the `deps` stage — node_modules are pre-installed in the
+  # image. Source is bind-mounted for instant hot reload without rebuilding.
+  # node_modules and .next are excluded from the bind mount so the container's
+  # pnpm packages are never overwritten by the host filesystem.
   app:
     build:
       context: .
       target: deps
-    command: ["sh", "-c", "npx prisma db push --accept-data-loss && npm run dev"]
+    restart: unless-stopped
+    command: ["sh", "-c", "pnpm exec prisma db push --accept-data-loss && pnpm dev"]
     volumes:
       - .:/app
       - /app/node_modules
@@ -33,5 +44,6 @@ services:
       - path: .env.local
         required: false
 
+# ── Volumes ─────────────────────────────────────────────────────────────────
 volumes:
   postgres_data_dev:

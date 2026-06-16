@@ -1,24 +1,9 @@
 services:
-  # Optional local Postgres — only starts when you explicitly use --profile local-db.
-  # By default the app reads DATABASE_URL from .env.local (your cloud DB).
-  db:
-    profiles: [local-db]
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: shopify_analyser
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
+  # ── Application ─────────────────────────────────────────────────────────────
+  # Builds the production image from the local Dockerfile (multi-stage,
+  # standalone Next.js output). DATABASE_URL and all other secrets are injected
+  # from .env.local at runtime — the file is never baked into the image.
+  # By default the app connects to the cloud DB (Supabase) declared in .env.local.
   app:
     build: .
     restart: unless-stopped
@@ -27,6 +12,3 @@ services:
     env_file:
       - path: .env.local
         required: false
-
-volumes:
-  postgres_data:
