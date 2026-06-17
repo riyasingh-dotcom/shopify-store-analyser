@@ -121,11 +121,14 @@ All three Groq routes use the OpenAI-compatible SDK pointed at `https://api.groq
 
 1. CSRF guard: checks both `X-Requested-With` and `Origin` vs `Host`.
 2. **Zod validation** via `OrdersBodySchema` — mirrors the full `FlatOrder` shape including nested `FlatLineItem[]` and nullable `FlatCustomer`. Returns `400` on failure.
-3. Calls `buildOrdersSummary(orders)` to build the LLM prompt, then streams a **Server-Sent Events** response with raw tokens and a `[DONE]` sentinel. No DB persistence.
+3. Calls `buildOrdersSummary(orders)` to build the LLM prompt, then streams a **Server-Sent Events** response with raw tokens and a `[DONE]` sentinel.
 4. Response JSON schema: `{ overallHealthScore (1-10), categories [4 items], topPriority, positives (2-3) }`. Categories: `Revenue Health | Fulfilment Performance | Product Mix | Customer Quality`.
 5. `max_tokens: 2048` — required because 4 verbose categories easily exceed 1024.
+6. After `[DONE]`, persists to `OrdersAnalysis` via `persistOrdersAnalysis()` (non-fatal). Also stores a `metricsSnapshot` (built by `buildOrdersAnalysisSnapshot()` in `lib/ordersSummary.ts`) capturing the exact metrics sent to the LLM.
 
-The client component `components/orders/OrdersAnalysis.tsx` accumulates SSE tokens until `[DONE]`, then parses with `parseOrdersAnalysis()`. That parser normalises LLM status deviations (`"adequate"` → `"good"`, `"needs work"` → `"warning"`) and coerces numeric `metric` values to strings. The component uses a module-level `analysisCache` so results survive client-side navigation; analysis is **not** triggered on mount — users click "Generate Analysis" manually.
+**`lib/ordersAnalysisDb.ts`** — DB helpers: `persistOrdersAnalysis()`, `getLatestOrdersAnalysis()`, `getOrdersAnalysisHistory(limit)`. All three apply `normaliseStatus()` on read because Groq occasionally returns synonyms (`"adequate"`, `"strong"`, `"needs work"`) that aren't in the `CategoryStatus` union — normalization happens at the DB layer, not the client.
+
+The client component `components/orders/OrdersAnalysis.tsx` accumulates SSE tokens until `[DONE]`, then parses with `parseOrdersAnalysis()`. That parser normalises LLM status deviations and coerces numeric `metric` values to strings. The component uses a module-level `analysisCache` so results survive client-side navigation; analysis is **not** triggered on mount — users click "Generate Analysis" manually. A **History dropdown** in the result header lets users switch between the 10 most recent analyses (eagerly loaded at page render via `getOrdersAnalysisHistory(10)`) without extra API calls.
 
 ### Product Audit System
 
@@ -153,11 +156,12 @@ Returns `{ totalScore, grade (A–F), checks[], categoryScores }`. Also exports 
 
 ### Database Models
 
-Four Prisma models in `prisma/schema.prisma`:
+Five Prisma models in `prisma/schema.prisma`:
 
 - **`StoreAnalysis`** + **`ShopifySnapshot`** (1:1) — store health analysis with a point-in-time snapshot of metrics.
 - **`ProductAuditLog`** — audit results per product, with a `checksHash` for deduplication.
 - **`ProductSuggestion`** — Groq-generated rewrites with original/improved values side by side and an `expectedScore` from re-auditing.
+- **`OrdersAnalysis`** — persisted orders AI results (`analysisJson Json`, `metricsSnapshot Json?`). Indexed by `generatedAt desc`. `metricsSnapshot` is nullable because older records predate the field.
 
 **Critical for Vercel deployment:** `schema.prisma` must keep `binaryTargets = ["native", "rhel-openssl-3.0.x"]` and `next.config.ts` must keep `serverExternalPackages: ['@prisma/client']`. Removing either breaks Prisma on Vercel's Lambda.
 
@@ -176,6 +180,7 @@ Tailwind v4 with PostCSS. No `tailwind.config.js` — all configuration is CSS-f
 - `types/shopify.ts` — `Product`, `Order`, `StoreData`, `StoreMetrics`, `ProductImage`, `ProductVariant`, `ProductSeo`, `GraphQLOrder`
 - `types/analysis.ts` — `StoreAnalysis`, `Insight`, `InsightCategory`, `InsightPriority`
 - `types/suggestions.ts` — `ProductSuggestion` (shared between the API route and `ProductSuggestions` client component — import from here, not either consumer)
+- `types/ordersAnalysis.ts` — `OrdersAnalysisResult`, `OrdersAnalysisSnapshot`, `OrdersAnalysisHistoryItem`, `AnalysisCategory`, `CategoryStatus`, `CategoryName`
 - `lib/audit/productAudit.ts` — `ProductAuditResult`, `ProductAuditCheck`, `AuditCategory`, `AuditGrade`
 - `lib/orders.ts` — `FlatOrder`, `FlatLineItem`, `FlatCustomer`, `RevenueMetrics`, `ProductRevenueEntry`, `DailyRevenue`, `RepeatCustomerRate`
 - `lib/shopify/queries.ts` — GraphQL query strings (`SHOP_QUERY`, `PRODUCTS_QUERY`, `ORDERS_QUERY`, `ORDERS_DETAIL_QUERY`). The detail query fetches line items needed for the orders dashboard; the basic query is used for the overview.
