@@ -12,6 +12,6 @@ services:
     env_file:
       - path: .env.local
         required: false
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
+    # dns:
+    #   - 8.8.8.8
+    #   - 1.1.1.1
