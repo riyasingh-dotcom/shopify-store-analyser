@@ -184,9 +184,10 @@ Tailwind v4 with PostCSS. No `tailwind.config.js` — all configuration is CSS-f
 - `lib/audit/productAudit.ts` — `ProductAuditResult`, `ProductAuditCheck`, `AuditCategory`, `AuditGrade`
 - `lib/orders.ts` — `FlatOrder`, `FlatLineItem`, `FlatCustomer`, `RevenueMetrics`, `ProductRevenueEntry`, `DailyRevenue`, `RepeatCustomerRate`
 - `lib/shopify/queries.ts` — GraphQL query strings (`SHOP_QUERY`, `PRODUCTS_QUERY`, `ORDERS_QUERY`, `ORDERS_DETAIL_QUERY`). The detail query fetches line items needed for the orders dashboard; the basic query is used for the overview.
+- `lib/shopify/utils.ts` — `extractNumericId(gid: string): string` strips the Shopify GID prefix (e.g. `"gid://shopify/Product/12345"` → `"12345"`).
 
 ### Docker Notes
 
-- `docker-entrypoint.sh` runs `prisma db push --accept-data-loss` on every startup. Switch to `prisma migrate deploy` for production.
+- `docker-entrypoint.sh` runs `prisma db push --accept-data-loss` only when `DATABASE_URL` contains `@db:` or `@localhost:` (local Postgres). Cloud databases (Neon, Supabase) are detected by URL and skipped — apply migrations manually via `pnpm db:push`.
 - Inside containers, Postgres is reachable via the service name `db`, not `localhost`.
 - `.env.local` is never baked into the image — injected at runtime via `env_file`.
