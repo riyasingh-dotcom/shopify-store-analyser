@@ -20,7 +20,7 @@ function normaliseStatus(status: unknown, score: number): CategoryStatus {
 
 export async function persistOrdersAnalysis(
   storeDomain: string,
-  analysis: OrdersAnalysisResult,
+  analysis: Record<string, unknown>,
   metricsSnapshot: OrdersAnalysisSnapshot,
 ): Promise<void> {
   await prisma.ordersAnalysis.create({

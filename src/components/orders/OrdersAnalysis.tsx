@@ -558,6 +558,14 @@ export default function OrdersAnalysis({
   });
   const [isSwitching, setIsSwitching] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear pending switch timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (switchTimerRef.current) clearTimeout(switchTimerRef.current);
+    };
+  }, []);
 
   // Sync module-level cache from server-fetched data on first mount (once only).
   useEffect(() => {
@@ -671,8 +679,8 @@ export default function OrdersAnalysis({
     setIsSwitching(true);
     setSelectedHistoryId(item.id);
     setIsHistoryOpen(false);
-    // Brief loading flash so the user sees a state change before the new result renders
-    setTimeout(() => setIsSwitching(false), 150);
+    if (switchTimerRef.current) clearTimeout(switchTimerRef.current);
+    switchTimerRef.current = setTimeout(() => setIsSwitching(false), 150);
   }, [selectedHistoryId]);
 
   const handleGenerate = useCallback(() => {

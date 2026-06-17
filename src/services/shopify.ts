@@ -44,11 +44,12 @@ export async function getOrdersData(): Promise<
 }
 
 export async function getStoreData(): Promise<StoreData> {
-  const [shop, products, orders] = await Promise.all([
-    getShopInfo(),
-    getProducts(),
-    getOrders(),
-  ]);
+  // Fetch shop info first (cheap), then products and orders together.
+  // Splitting into two waves halves the concurrent Shopify call count when
+  // this runs alongside other page-level queries (e.g. getOrdersGraphQL),
+  // keeping the GraphQL cost bucket from draining all at once.
+  const shop = await getShopInfo();
+  const [products, orders] = await Promise.all([getProducts(), getOrders()]);
 
   return {
     shop,

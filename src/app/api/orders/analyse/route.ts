@@ -4,7 +4,6 @@ import type { Stream } from 'openai/streaming';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
 import { buildOrdersSummary, buildOrdersAnalysisSnapshot } from '@/lib/ordersSummary';
 import { persistOrdersAnalysis } from '@/lib/ordersAnalysisDb';
-import type { OrdersAnalysisResult } from '@/types/ordersAnalysis';
 
 export const dynamic = 'force-dynamic';
 
@@ -144,6 +143,8 @@ async function createGroqStream(
 export async function POST(request: Request): Promise<Response> {
   const origin = request.headers.get('origin');
   const host = request.headers.get('host') ?? '';
+  // origin is null for same-origin requests from non-browser clients; the
+  // X-Requested-With check below is the effective CSRF guard in that case.
   const isSameOrigin =
     origin === null ||
     origin === `https://${host}` ||
@@ -236,7 +237,7 @@ export async function POST(request: Request): Promise<Response> {
       try {
         const parsed = JSON.parse(accumulated) as unknown;
         if (isRecord(parsed)) {
-          await persistOrdersAnalysis(storeDomain, parsed as OrdersAnalysisResult, snapshot);
+          await persistOrdersAnalysis(storeDomain, parsed, snapshot);
         }
       } catch (err) {
         console.error('[/api/orders/analyse] DB persistence failed (non-fatal):', err);

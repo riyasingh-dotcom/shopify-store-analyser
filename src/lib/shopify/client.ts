@@ -41,15 +41,16 @@ export async function shopifyFetch<T>(
   const token = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN!;
   const endpoint = `https://${domain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
 
-  // Retry once on connection-level failures (stale Undici keepalive socket).
-  // When fetch() throws, Undici discards the failed socket from the pool, so
-  // the retry always gets a fresh TCP connection — no delay needed.
-  // HTTP errors (4xx/5xx) are returned as { data: null, error } and never
-  // reach the catch block, so retrying here is naturally scoped to
-  // network-level failures only.
-  let lastNetworkError = 'Unknown network error';
+  // Retry up to 3 times. Three distinct failure modes each need their own
+  // handling before giving up:
+  //   1. Network throws (stale keepalive socket) — retry immediately, no delay.
+  //   2. HTTP 429 — Shopify's REST rate limit; honour the Retry-After header.
+  //   3. GraphQL THROTTLED (HTTP 200 with extensions.code=THROTTLED) — Shopify's
+  //      GraphQL cost-bucket limit; retry after extensions.retryAfter seconds.
+  const MAX_RETRIES = 3;
+  let lastError = 'Unknown error';
 
-  for (let attempt = 0; attempt <= 1; attempt++) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -61,6 +62,20 @@ export async function shopifyFetch<T>(
         cache: 'no-store',
       });
 
+      // HTTP 429 — rate limited. Honour Retry-After if present.
+      if (response.status === 429) {
+        if (attempt < MAX_RETRIES) {
+          const retryAfter = response.headers.get('Retry-After');
+          const waitMs = retryAfter
+            ? Math.ceil(parseFloat(retryAfter) * 1000)
+            : 1000 * 2 ** attempt;
+          console.warn(`[shopifyFetch] HTTP 429, waiting ${waitMs}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise<void>((r) => setTimeout(r, waitMs));
+          continue;
+        }
+        return { data: null, error: 'Shopify API error: HTTP 429 Too Many Requests' };
+      }
+
       if (!response.ok) {
         return {
           data: null,
@@ -68,10 +83,21 @@ export async function shopifyFetch<T>(
         };
       }
 
-      const json = await response.json();
+      const json = await response.json() as {
+        data?: T;
+        errors?: Array<{ message: string; extensions?: { code?: string; retryAfter?: number } }>;
+      };
 
+      // GraphQL THROTTLED — Shopify sends HTTP 200 with an error extension.
       if (json.errors?.length) {
-        return { data: null, error: (json.errors[0] as { message: string }).message };
+        const throttled = json.errors.find((e) => e.extensions?.code === 'THROTTLED');
+        if (throttled && attempt < MAX_RETRIES) {
+          const waitMs = Math.ceil((throttled.extensions?.retryAfter ?? 2) * 1000);
+          console.warn(`[shopifyFetch] GraphQL throttled, waiting ${waitMs}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise<void>((r) => setTimeout(r, waitMs));
+          continue;
+        }
+        return { data: null, error: json.errors[0].message };
       }
 
       return { data: json.data as T, error: null };
@@ -80,15 +106,15 @@ export async function shopifyFetch<T>(
         err instanceof Error && err.cause instanceof Error
           ? `: ${err.cause.message}`
           : '';
-      lastNetworkError =
+      lastError =
         err instanceof Error ? `${err.message}${cause}` : 'Unknown network error';
 
-      if (attempt === 0) {
-        console.warn('[shopifyFetch] Transient connection error, retrying:', lastNetworkError);
+      if (attempt < MAX_RETRIES) {
+        console.warn('[shopifyFetch] Transient connection error, retrying:', lastError);
         continue;
       }
     }
   }
 
-  return { data: null, error: lastNetworkError };
+  return { data: null, error: lastError };
 }

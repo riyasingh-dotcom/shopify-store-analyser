@@ -1,13 +1,5 @@
 // Server Component — order status breakdown + revenue summary panel
-import type { Order, MoneyV2 } from '@/types/shopify';
-
-function formatMoney(money: MoneyV2): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: money.currencyCode,
-    maximumFractionDigits: 0,
-  }).format(parseFloat(money.amount));
-}
+import type { Order } from '@/types/shopify';
 
 interface StatusBarProps {
   label: string;
@@ -53,7 +45,8 @@ export default function OrderSummary({ orders }: OrderSummaryProps) {
   for (const order of orders) {
     const key = order.displayFinancialStatus ?? 'Unknown';
     counts[key] = (counts[key] ?? 0) + 1;
-    revenue += parseFloat(order.totalPriceSet.shopMoney.amount);
+    const parsed = parseFloat(order.totalPriceSet.shopMoney.amount);
+    if (!isNaN(parsed)) revenue += parsed;
   }
 
   const currencyCode = orders[0]?.totalPriceSet.shopMoney.currencyCode ?? 'USD';

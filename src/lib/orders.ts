@@ -1,6 +1,23 @@
 import type { GraphQLOrder } from '@/types/shopify';
 
 // ---------------------------------------------------------------------------
+// Money helpers
+// ---------------------------------------------------------------------------
+
+function parseMoney(amount: string): number {
+  const n = parseFloat(amount);
+  if (isNaN(n)) {
+    console.error(`[orders] parseMoney: invalid amount string "${amount}"`);
+    return 0;
+  }
+  return n;
+}
+
+function roundMoney(amount: number): number {
+  return Math.round(amount * 100) / 100;
+}
+
+// ---------------------------------------------------------------------------
 // Flat types
 // ---------------------------------------------------------------------------
 
@@ -54,13 +71,13 @@ export function flattenOrder(order: GraphQLOrder): FlatOrder {
   const currencyCode = order.totalPriceSet.shopMoney.currencyCode;
 
   const lineItems = order.lineItems.edges.map(({ node }): FlatLineItem => {
-    const unitPrice = parseFloat(node.originalUnitPriceSet.shopMoney.amount);
+    const unitPrice = parseMoney(node.originalUnitPriceSet.shopMoney.amount);
     return {
       id: node.id,
       title: node.title,
       quantity: node.quantity,
       unitPrice,
-      totalPrice: node.quantity * unitPrice,
+      totalPrice: roundMoney(node.quantity * unitPrice),
       variantTitle: node.variant?.title ?? '',
       sku: node.variant?.sku ?? '',
       productId: node.product?.id ?? '',
@@ -71,15 +88,16 @@ export function flattenOrder(order: GraphQLOrder): FlatOrder {
   return {
     id: order.id,
     name: order.name,
+    // email and customer are intentionally absent from ORDERS_DETAIL_QUERY (PII deferral)
     email: null,
     createdAt: new Date(order.createdAt).toISOString(),
     updatedAt: new Date(order.updatedAt).toISOString(),
     financialStatus: order.displayFinancialStatus,
     fulfillmentStatus: order.displayFulfillmentStatus,
-    totalPrice: parseFloat(order.totalPriceSet.shopMoney.amount),
-    subtotalPrice: parseFloat(order.subtotalPriceSet.shopMoney.amount),
-    totalDiscounts: parseFloat(order.totalDiscountsSet.shopMoney.amount),
-    totalShipping: parseFloat(order.totalShippingPriceSet.shopMoney.amount),
+    totalPrice: parseMoney(order.totalPriceSet.shopMoney.amount),
+    subtotalPrice: parseMoney(order.subtotalPriceSet.shopMoney.amount),
+    totalDiscounts: parseMoney(order.totalDiscountsSet.shopMoney.amount),
+    totalShipping: parseMoney(order.totalShippingPriceSet.shopMoney.amount),
     currencyCode,
     lineItems,
     customer: null,
@@ -137,7 +155,7 @@ export function calculateRevenueMetrics(orders: FlatOrder[]): RevenueMetrics {
     averageOrderValue: orders.length > 0 ? totalRevenue / orders.length : 0,
     totalDiscountsGiven,
     revenueAfterDiscounts: totalRevenue - totalDiscountsGiven,
-    currencyCode: orders[0]?.currencyCode ?? '',
+    currencyCode: orders[0]?.currencyCode ?? 'USD',
   };
 }
 
