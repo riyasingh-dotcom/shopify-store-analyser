@@ -7,12 +7,14 @@ import {
   getRepeatCustomerRate,
   getTopProductsByRevenue,
 } from '@/lib/orders';
+import { getLatestOrdersAnalysis, getOrdersAnalysisHistory } from '@/lib/ordersAnalysisDb';
 import MobileMenuButton from '@/components/MobileMenuButton';
 import RevenueMetrics from '@/components/orders/RevenueMetrics';
 import RevenueChart from '@/components/orders/RevenueChart';
 import OrderStatusBreakdown from '@/components/orders/OrderStatusBreakdown';
 import CustomerInsight from '@/components/orders/CustomerInsight';
 import TopProductsTable from '@/components/orders/TopProductsTable';
+import OrdersAnalysis from '@/components/orders/OrdersAnalysis';
 import type { FlatOrder } from '@/lib/orders';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +22,7 @@ export const dynamic = 'force-dynamic';
 function getDateRangeLabel(orders: FlatOrder[]): string {
   if (orders.length === 0) return 'No orders in range';
 
-  const timestamps = orders.map((o) => o.createdAt.getTime());
+  const timestamps = orders.map((o) => new Date(o.createdAt).getTime());
   const min = new Date(Math.min(...timestamps));
   const max = new Date(Math.max(...timestamps));
 
@@ -52,9 +54,11 @@ function ErrorState({ message }: { message: string }) {
 }
 
 export default async function OrdersPage() {
-  const [{ shop, isMockData }, ordersResult] = await Promise.all([
+  const [{ shop, isMockData }, ordersResult, latestAnalysis, history] = await Promise.all([
     getStoreDataCached(),
     getOrdersData(),
+    getLatestOrdersAnalysis().catch(() => null),
+    getOrdersAnalysisHistory(10).catch(() => []),
   ]);
 
   if ('error' in ordersResult) {
@@ -62,12 +66,13 @@ export default async function OrdersPage() {
   }
 
   const { orders, metrics } = ordersResult;
+  const storeDomain = shop.myshopifyDomain || shop.name;
   const dateRange = getDateRangeLabel(orders);
   const revenueByDay = getRevenueByDay(orders);
   const ordersByStatus = getOrdersByStatus(orders);
   const ordersByFulfilment = getOrdersByFulfilmentStatus(orders);
   const repeatRate = getRepeatCustomerRate(orders);
-  const topProducts = getTopProductsByRevenue(orders, 10);
+  const topProducts = getTopProductsByRevenue(orders, 50);
 
   return (
     <>
@@ -90,7 +95,15 @@ export default async function OrdersPage() {
         {/* 2 — Revenue Metrics */}
         <RevenueMetrics metrics={metrics} />
 
-        {/* 3 — Revenue Over Time (full width) */}
+        {/* 3 — AI Orders Analysis (on-demand) */}
+        <OrdersAnalysis
+          orders={orders}
+          storeDomain={storeDomain}
+          initialAnalysis={latestAnalysis}
+          history={history}
+        />
+
+        {/* 4 — Revenue Over Time (full width) */}
         <RevenueChart data={revenueByDay} currencyCode={metrics.currencyCode} />
 
         {/* 4 — Order Status (left) + Customer Insight (right) */}

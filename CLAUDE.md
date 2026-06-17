@@ -37,7 +37,7 @@ Copy `.env.example` to `.env.local`. The app enters **mock mode** automatically 
 | `SHOPIFY_ADMIN_ACCESS_TOKEN` | No† | From Shopify Admin or the OAuth callback |
 | `SHOPIFY_API_KEY` | No‡ | Only for the one-time OAuth flow at `/api/auth/callback` |
 | `SHOPIFY_API_SECRET` | No‡ | Only for the OAuth flow |
-| `GROQ_API_KEY` | Yes | Required for store analysis and Product Optimiser |
+| `GROQ_API_KEY` | Yes | Required for store analysis, Product Optimiser, and Orders Analysis |
 | `DATABASE_URL` | Yes | Use the pooled connection string (Neon/Supabase) |
 | `DIRECT_URL` | Yes | Direct (non-pooled) connection — used by Prisma migrations |
 
@@ -45,6 +45,22 @@ Copy `.env.example` to `.env.local`. The app enters **mock mode** automatically 
 ‡ Only needed for the initial access-token exchange.
 
 ## Architecture
+
+### Source Layout
+
+All application code lives under `src/`. The TypeScript path alias `@/*` maps to `./src/*` — always use `@/` imports, never relative paths that cross feature boundaries.
+
+### Routes
+
+| Route | Purpose |
+|---|---|
+| `/` | Overview dashboard — KPI cards + `StreamingAnalysis` |
+| `/products` | Products table with audit scores + `BulkOptimise` controller |
+| `/products/[id]` | Product detail — audit breakdown + `ProductSuggestions` SSE stream |
+| `/products/[id]/history` | Per-product suggestion history |
+| `/orders` | Orders intelligence — revenue metrics, AI analysis, charts, paginated top products |
+| `/history` | Store analysis history (20 most recent) |
+| `/history/[id]` | Individual analysis detail |
 
 ### Next.js Version
 
@@ -65,15 +81,21 @@ Every page exports `dynamic = 'force-dynamic'` to opt out of static rendering.
 
 **`lib/shopify/client.ts`** — `shopifyFetch<T>()`: raw GraphQL wrapper, returns `{ data, error }`, never throws. `isMockMode()` is true when credentials are absent.
 
-**`lib/shopify/api.ts`** — `getShopInfo`, `getProducts`, `getOrders`: typed callers with cursor-based pagination (up to 250 per batch). Return mock data silently in mock mode; throw with a descriptive message in live mode. `flattenProduct()` converts Shopify's connection shape (edges/node) into the plain `Product` type.
+**`lib/shopify/api.ts`** — `getShopInfo`, `getProducts`, `getOrders`: typed callers with cursor-based pagination (up to 250 per batch). Return mock data silently in mock mode; throw with a descriptive message in live mode. `flattenProduct()` converts Shopify's connection shape (edges/node) into the plain `Product` type. **`getOrdersGraphQL` has no mock mode guard** — it always calls the real Shopify API and will throw (and cause the `/orders` page to show an error) if credentials are absent.
 
 **`lib/shopify/cached.ts`** — `getStoreDataCached = cache(getStoreData)`. Always import this instead of `getStoreData` directly in server components.
 
-**`lib/analytics.ts`** — Pure functions that compute `StoreMetrics` from raw products/orders arrays. Uses a `safeFloat()` helper to guard all `parseFloat` calls against NaN.
+**`services/shopify.ts`** — Service layer assembler. `getStoreData()` fans out via `Promise.all` to fetch shop, products, and orders, then computes metrics. `getOrdersData()` is used only by the `/orders` page — calls `getOrdersGraphQL()` (one page, 50 orders, no pagination loop) and returns `{ orders: FlatOrder[]; metrics: RevenueMetrics } | { error: string }`.
+
+**`lib/analytics.ts`** — Pure functions that compute `StoreMetrics` from raw products/orders arrays.
+
+**`lib/orders.ts`** — Pure order-processing utilities. `FlatOrder.createdAt` and `updatedAt` are ISO strings (not `Date` objects) — use `new Date(o.createdAt)` when you need a `Date`. Key exports: `flattenOrders()`, `calculateRevenueMetrics()`, `getRevenueByDay()`, `getOrdersByStatus()`, `getOrdersByFulfilmentStatus()`, `getTopProductsByRevenue()`, `getRepeatCustomerRate()`.
+
+**`lib/ordersSummary.ts`** — `buildOrdersSummary(orders: FlatOrder[]): string` builds the plain-text LLM prompt for the orders AI route. Sections: time period, revenue, financial status, fulfilment status, top 5 products, customer retention, notable flags (unfulfilled >20%, discount rate >25%, single product >50% of revenue).
 
 ### AI Entry Points
 
-There are two independent Groq routes — both use the OpenAI-compatible SDK pointed at `https://api.groq.com/openai/v1`, model `llama-3.3-70b-versatile`.
+All three Groq routes use the OpenAI-compatible SDK pointed at `https://api.groq.com/openai/v1`, model `llama-3.3-70b-versatile`. All retry Groq up to 2 times on 429/5xx with exponential backoff (600 ms, 1 200 ms).
 
 #### 1. Store Analysis — `POST /api/analyse`
 
@@ -95,7 +117,15 @@ There are two independent Groq routes — both use the OpenAI-compatible SDK poi
 4. Streams a **Server-Sent Events** response (`text/event-stream`) — raw tokens as `data:` events, a `score` event after persistence, and a `[DONE]` sentinel.
 5. After the stream closes: `sanitizeHtml()` on AI-generated HTML, re-runs `auditProduct()` to compute `expectedScore`, persists to `ProductSuggestion`.
 
-Both routes retry Groq up to 2 times on 429/5xx with exponential backoff (600 ms, 1 200 ms).
+#### 3. Orders Analysis — `POST /api/orders/analyse`
+
+1. CSRF guard: checks both `X-Requested-With` and `Origin` vs `Host`.
+2. **Zod validation** via `OrdersBodySchema` — mirrors the full `FlatOrder` shape including nested `FlatLineItem[]` and nullable `FlatCustomer`. Returns `400` on failure.
+3. Calls `buildOrdersSummary(orders)` to build the LLM prompt, then streams a **Server-Sent Events** response with raw tokens and a `[DONE]` sentinel. No DB persistence.
+4. Response JSON schema: `{ overallHealthScore (1-10), categories [4 items], topPriority, positives (2-3) }`. Categories: `Revenue Health | Fulfilment Performance | Product Mix | Customer Quality`.
+5. `max_tokens: 2048` — required because 4 verbose categories easily exceed 1024.
+
+The client component `components/orders/OrdersAnalysis.tsx` accumulates SSE tokens until `[DONE]`, then parses with `parseOrdersAnalysis()`. That parser normalises LLM status deviations (`"adequate"` → `"good"`, `"needs work"` → `"warning"`) and coerces numeric `metric` values to strings. The component uses a module-level `analysisCache` so results survive client-side navigation; analysis is **not** triggered on mount — users click "Generate Analysis" manually.
 
 ### Product Audit System
 
@@ -143,10 +173,12 @@ Tailwind v4 with PostCSS. No `tailwind.config.js` — all configuration is CSS-f
 
 ### Type System
 
-- `types/shopify.ts` — `Product`, `Order`, `StoreData`, `StoreMetrics`, `ProductImage`, `ProductVariant`, `ProductSeo`
+- `types/shopify.ts` — `Product`, `Order`, `StoreData`, `StoreMetrics`, `ProductImage`, `ProductVariant`, `ProductSeo`, `GraphQLOrder`
 - `types/analysis.ts` — `StoreAnalysis`, `Insight`, `InsightCategory`, `InsightPriority`
 - `types/suggestions.ts` — `ProductSuggestion` (shared between the API route and `ProductSuggestions` client component — import from here, not either consumer)
 - `lib/audit/productAudit.ts` — `ProductAuditResult`, `ProductAuditCheck`, `AuditCategory`, `AuditGrade`
+- `lib/orders.ts` — `FlatOrder`, `FlatLineItem`, `FlatCustomer`, `RevenueMetrics`, `ProductRevenueEntry`, `DailyRevenue`, `RepeatCustomerRate`
+- `lib/shopify/queries.ts` — GraphQL query strings (`SHOP_QUERY`, `PRODUCTS_QUERY`, `ORDERS_QUERY`, `ORDERS_DETAIL_QUERY`). The detail query fetches line items needed for the orders dashboard; the basic query is used for the overview.
 
 ### Docker Notes
 

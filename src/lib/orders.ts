@@ -29,8 +29,8 @@ export type FlatOrder = {
   id: string;
   name: string;
   email: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
   financialStatus: string;
   fulfillmentStatus: string;
   totalPrice: number;
@@ -72,8 +72,8 @@ export function flattenOrder(order: GraphQLOrder): FlatOrder {
     id: order.id,
     name: order.name,
     email: null,
-    createdAt: new Date(order.createdAt),
-    updatedAt: new Date(order.updatedAt),
+    createdAt: new Date(order.createdAt).toISOString(),
+    updatedAt: new Date(order.updatedAt).toISOString(),
     financialStatus: order.displayFinancialStatus,
     fulfillmentStatus: order.displayFulfillmentStatus,
     totalPrice: parseFloat(order.totalPriceSet.shopMoney.amount),
@@ -201,7 +201,7 @@ export function getRevenueByDay(orders: FlatOrder[]): DailyRevenue[] {
   const map = new Map<string, { revenue: number; orderCount: number }>();
 
   for (const order of orders) {
-    const date = order.createdAt.toISOString().slice(0, 10);
+    const date = order.createdAt.slice(0, 10);
     const existing = map.get(date);
     if (existing) {
       existing.revenue += order.totalPrice;

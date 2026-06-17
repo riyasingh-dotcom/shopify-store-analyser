@@ -68,3 +68,15 @@ model ProductSuggestion {
   storeDomain             String
   createdAt               DateTime         @default(now())
 }
+
+model OrdersAnalysis {
+  id              String   @id @default(cuid())
+  storeDomain     String
+  analysisJson    Json
+  metricsSnapshot Json?
+  generatedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([generatedAt(sort: Desc)])
+}
