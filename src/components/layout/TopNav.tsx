@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import { useState } from 'react';
 import type { ShopInfo } from '@/types/shopify';
 import { signOutAction } from '@/app/actions/auth';
@@ -17,11 +16,11 @@ const NAV_LINKS = [
 interface TopNavProps {
   shop: ShopInfo;
   isMockData: boolean;
+  user: { name?: string | null; email?: string | null } | null;
 }
 
-export default function TopNav({ shop, isMockData }: TopNavProps) {
+export default function TopNav({ shop, isMockData, user }: TopNavProps) {
   const pathname = usePathname();
-  const { data: session } = useSession();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const initials =
@@ -94,14 +93,14 @@ export default function TopNav({ shop, isMockData }: TopNavProps) {
         </div>
 
         {/* User + Sign out (desktop) */}
-        {session?.user && (
+        {user && (
           <div className="hidden items-center gap-3 md:flex">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
                 {initials}
               </div>
               <span className="hidden max-w-[160px] truncate text-xs text-gray-500 lg:block">
-                {session.user.email}
+                {user.email}
               </span>
             </div>
             <form action={signOutAction}>
@@ -175,13 +174,13 @@ export default function TopNav({ shop, isMockData }: TopNavProps) {
             })}
           </nav>
 
-          {session?.user && (
+          {user && (
             <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
               <div className="flex items-center gap-2 px-3">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
                   {initials}
                 </div>
-                <span className="min-w-0 truncate text-xs text-gray-500">{session.user.email}</span>
+                <span className="min-w-0 truncate text-xs text-gray-500">{user.email}</span>
               </div>
               <form action={signOutAction}>
                 <button

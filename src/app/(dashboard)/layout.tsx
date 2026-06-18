@@ -1,5 +1,6 @@
 import TopNav from '@/components/layout/TopNav';
 import { getStoreDataCached } from '@/lib/shopify/cached';
+import { auth } from '@/auth';
 import type { ShopInfo } from '@/types/shopify';
 
 export const dynamic = 'force-dynamic';
@@ -24,9 +25,11 @@ export default async function MainLayout({ children }: { children: React.ReactNo
     console.error('[MainLayout] getStoreDataCached failed, using fallback:', err);
   }
 
+  const session = await auth().catch(() => null);
+
   return (
     <div className="flex min-h-screen flex-col">
-      <TopNav shop={shop} isMockData={isMockData} />
+      <TopNav shop={shop} isMockData={isMockData} user={session?.user ?? null} />
       <div className="flex min-w-0 flex-1 flex-col lg:px-24">
         {children}
       </div>
