@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, startTransition } from 'react';
 import StoreScoreCard from './StoreScoreCard';
 import InsightCard from './InsightCard';
 import QuickWins from './QuickWins';
-import InsightsSkeleton from './InsightsSkeleton';
+import InsightsSkeleton from '@/components/ui/InsightsSkeleton';
 import type { StoreAnalysis, Insight } from '@/types/analysis';
 
 // Survives client-side route changes; cleared when the user clicks Regenerate.

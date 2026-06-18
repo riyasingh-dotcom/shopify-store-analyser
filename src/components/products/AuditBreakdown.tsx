@@ -1,4 +1,4 @@
-import type { ProductAuditResult, AuditCategory, ProductAuditCheck } from '@/lib/audit/productAudit';
+import type { ProductAuditResult, AuditCategory, ProductAuditCheck } from '@/lib/analysis/products/productAudit';
 
 const CATEGORY_META: Record<AuditCategory, { label: string }> = {
   title:       { label: 'Title'       },

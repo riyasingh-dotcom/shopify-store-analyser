@@ -1,4 +1,4 @@
-import type { AuditGrade } from '@/lib/audit/productAudit';
+import type { AuditGrade } from '@/lib/analysis/products/productAudit';
 
 type Size = 'sm' | 'md' | 'lg';
 

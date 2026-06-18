@@ -1,8 +1,8 @@
 import { getStoreDataCached } from '@/lib/shopify/cached';
-import ProductsTable from '@/components/ProductsTable';
-import BulkOptimise from '@/components/BulkOptimise';
-import { auditProduct } from '@/lib/audit/productAudit';
-import type { ProductAuditResult } from '@/lib/audit/productAudit';
+import ProductsTable from '@/components/products/ProductsTable';
+import BulkOptimise from '@/components/products/BulkOptimise';
+import { auditProduct } from '@/lib/analysis/products/productAudit';
+import type { ProductAuditResult } from '@/lib/analysis/products/productAudit';
 import { prisma } from '@/lib/prisma';
 import { extractNumericId } from '@/lib/shopify/utils';
 

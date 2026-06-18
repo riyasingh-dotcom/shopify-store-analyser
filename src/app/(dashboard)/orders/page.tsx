@@ -1,19 +1,19 @@
 import { getStoreDataCached } from '@/lib/shopify/cached';
-import { getOrdersData } from '@/services/shopify';
+import { getOrdersData } from '@/lib/shopify/service';
 import {
   getRevenueByDay,
   getOrdersByStatus,
   getOrdersByFulfilmentStatus,
   getRepeatCustomerRate,
   getTopProductsByRevenue,
-} from '@/lib/orders';
-import { getLatestOrdersAnalysis, getOrdersAnalysisHistory } from '@/lib/ordersAnalysisDb';
+} from '@/lib/analysis/orders/orders';
+import { getLatestOrdersAnalysis, getOrdersAnalysisHistory } from '@/lib/analysis/orders/ordersAnalysisDb';
 import RevenueMetrics from '@/components/orders/RevenueMetrics';
 import RevenueChart from '@/components/orders/RevenueChart';
 import OrderStatusBreakdown from '@/components/orders/OrderStatusBreakdown';
 import TopProductsTable from '@/components/orders/TopProductsTable';
 import OrdersAnalysis from '@/components/orders/OrdersAnalysis';
-import type { FlatOrder } from '@/lib/orders';
+import type { FlatOrder } from '@/lib/analysis/orders/orders';
 
 export const dynamic = 'force-dynamic';
 

@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { getStoreData } from '@/services/shopify';
+import { getStoreData } from '@/lib/shopify/service';
 import { prisma } from '@/lib/prisma';
 import type { StoreData } from '@/types/shopify';
 

@@ -4,9 +4,9 @@ import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import type { Product, ProductStatus, ProductImage, MoneyV2 } from '@/types/shopify';
-import type { ProductAuditResult } from '@/lib/audit/productAudit';
+import type { ProductAuditResult } from '@/lib/analysis/products/productAudit';
 import { extractNumericId } from '@/lib/shopify/utils';
-import ScoreBadge from '@/components/audit/ScoreBadge';
+import ScoreBadge from '@/components/products/ScoreBadge';
 
 const PAGE_SIZE = 8;
 

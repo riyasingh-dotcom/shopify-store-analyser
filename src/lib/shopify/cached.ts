@@ -1,5 +1,5 @@
 import { cache } from 'react';
-import { getStoreData } from '@/services/shopify';
+import { getStoreData } from './service';
 
 // Deduplicates calls within the same React server render tree.
 // The root layout and each page both call this — only one Shopify

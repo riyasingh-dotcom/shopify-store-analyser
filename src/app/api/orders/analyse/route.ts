@@ -2,8 +2,8 @@ import { z } from 'zod';
 import OpenAI from 'openai';
 import type { Stream } from 'openai/streaming';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
-import { buildOrdersSummary, buildOrdersAnalysisSnapshot } from '@/lib/ordersSummary';
-import { persistOrdersAnalysis } from '@/lib/ordersAnalysisDb';
+import { buildOrdersSummary, buildOrdersAnalysisSnapshot } from '@/lib/analysis/orders/ordersSummary';
+import { persistOrdersAnalysis } from '@/lib/analysis/orders/ordersAnalysisDb';
 
 export const dynamic = 'force-dynamic';
 

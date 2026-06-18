@@ -3,13 +3,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { AlertCircle, AlertTriangle, Info, CheckCircle2, History } from 'lucide-react';
 import { getStoreDataCached } from '@/lib/shopify/cached';
-import { auditProduct, computeChecksHash } from '@/lib/audit/productAudit';
+import { auditProduct, computeChecksHash } from '@/lib/analysis/products/productAudit';
 import { prisma } from '@/lib/prisma';
-import type { ProductAuditCheck, AuditGrade } from '@/lib/audit/productAudit';
+import type { ProductAuditCheck, AuditGrade } from '@/lib/analysis/products/productAudit';
 import { extractNumericId } from '@/lib/shopify/utils';
 import type { ProductStatus } from '@/types/shopify';
-import AuditBreakdown from '@/components/audit/AuditBreakdown';
-import ProductSuggestions from '@/components/audit/ProductSuggestions';
+import AuditBreakdown from '@/components/products/AuditBreakdown';
+import ProductSuggestions from '@/components/products/ProductSuggestions';
 
 export const dynamic = 'force-dynamic';
 

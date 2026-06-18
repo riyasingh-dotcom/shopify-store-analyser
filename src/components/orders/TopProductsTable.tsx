@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { ProductRevenueEntry } from '@/lib/orders';
+import type { ProductRevenueEntry } from '@/lib/analysis/orders/orders';
 
 const PAGE_SIZE = 5;
 

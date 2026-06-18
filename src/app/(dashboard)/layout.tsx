@@ -1,4 +1,4 @@
-import TopNav from '@/components/TopNav';
+import TopNav from '@/components/layout/TopNav';
 import { getStoreDataCached } from '@/lib/shopify/cached';
 import type { ShopInfo } from '@/types/shopify';
 
@@ -27,7 +27,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   return (
     <div className="flex min-h-screen flex-col">
       <TopNav shop={shop} isMockData={isMockData} />
-      <div className="flex min-w-0 flex-1 flex-col lg:px-16">
+      <div className="flex min-w-0 flex-1 flex-col lg:px-24">
         {children}
       </div>
     </div>

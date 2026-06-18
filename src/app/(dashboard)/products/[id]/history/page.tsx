@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Clock, Sparkles, TrendingUp, Calendar, Hash } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
-import CopyButton from '@/components/CopyButton';
+import CopyButton from '@/components/ui/CopyButton';
 
 export const dynamic = 'force-dynamic';
 

@@ -5,7 +5,7 @@ import {
   getOrdersByFulfilmentStatus,
   getTopProductsByRevenue,
   getRepeatCustomerRate,
-} from '@/lib/orders';
+} from '@/lib/analysis/orders/orders';
 import type { OrdersAnalysisSnapshot } from '@/types/ordersAnalysis';
 
 function formatCurrency(amount: number, currencyCode: string): string {

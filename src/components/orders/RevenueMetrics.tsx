@@ -1,4 +1,4 @@
-import type { RevenueMetrics } from '@/lib/orders';
+import type { RevenueMetrics } from '@/lib/analysis/orders/orders';
 
 type Props = {
   metrics: RevenueMetrics;

@@ -14,7 +14,7 @@ import {
   Type,
 } from 'lucide-react';
 import type { Product } from '@/types/shopify';
-import type { ProductAuditResult } from '@/lib/audit/productAudit';
+import type { ProductAuditResult } from '@/lib/analysis/products/productAudit';
 import type { ProductSuggestion } from '@/types/suggestions';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
 

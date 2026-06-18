@@ -1,6 +1,6 @@
 import { getStoreDataCached } from '@/lib/shopify/cached';
-import StoreMetrics from '@/components/StoreMetrics';
-import StreamingAnalysis from '@/components/StreamingAnalysis';
+import StoreMetrics from '@/components/dashboard/StoreMetrics';
+import StreamingAnalysis from '@/components/dashboard/StreamingAnalysis';
 import type { StoreData } from '@/types/shopify';
 
 export const dynamic = 'force-dynamic';

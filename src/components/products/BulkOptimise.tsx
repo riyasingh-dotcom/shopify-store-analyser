@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, Sparkles, X, XCircle } from 'lucide-react';
 import type { Product } from '@/types/shopify';
-import type { ProductAuditResult } from '@/lib/audit/productAudit';
+import type { ProductAuditResult } from '@/lib/analysis/products/productAudit';
 
 // ---------------------------------------------------------------------------
 // Types

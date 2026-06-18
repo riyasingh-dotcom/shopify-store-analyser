@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
-import HistoryClient from './HistoryClient';
-import type { AnalysisCardData, StatsData } from './HistoryClient';
+import HistoryClient from '@/components/history/HistoryClient';
+import type { AnalysisCardData, StatsData } from '@/components/history/HistoryClient';
 import type { Insight } from '@/types/analysis';
 
 export const dynamic = 'force-dynamic';
