@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import type { ShopInfo } from '@/types/shopify';
 import { useSidebar } from './SidebarContext';
+import { signOutAction } from '@/app/actions/auth';
 
 // ── inline SVG icons ──────────────────────────────────────────────────────────
 
@@ -102,6 +104,7 @@ interface SidebarProps {
 export default function Sidebar({ shop, isMockData }: SidebarProps) {
   const { isOpen, close } = useSidebar();
   const pathname = usePathname();
+  const { data: session } = useSession();
 
   const initials = shop.name
     .split(' ')
@@ -142,7 +145,7 @@ export default function Sidebar({ shop, isMockData }: SidebarProps) {
           <button
             onClick={close}
             aria-label="Close sidebar"
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 lg:hidden"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 lg:hidden"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6 18L18 6M6 6l12 12" />
@@ -186,8 +189,9 @@ export default function Sidebar({ shop, isMockData }: SidebarProps) {
           <NavItem icon={<CogIcon />}   label="Settings"  disabled />
         </nav>
 
-        {/* Store info footer */}
-        <div className="border-t border-gray-200 bg-gray-50 p-4">
+        {/* Footer */}
+        <div className="border-t border-gray-200 bg-gray-50 p-4 space-y-3">
+          {/* Store row */}
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-bold text-white">
               {initials}
@@ -198,6 +202,23 @@ export default function Sidebar({ shop, isMockData }: SidebarProps) {
             </div>
             <span className={`block h-2 w-2 shrink-0 rounded-full ${isMockData ? 'bg-amber-400' : 'bg-emerald-400'}`} />
           </div>
+
+          {/* User row */}
+          {session?.user && (
+            <div className="flex items-center gap-2">
+              <p className="min-w-0 flex-1 truncate text-xs text-gray-500">
+                {session.user.email}
+              </p>
+              <form action={signOutAction}>
+                <button
+                  type="submit"
+                  className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-900"
+                >
+                  Sign out
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       </aside>
     </>

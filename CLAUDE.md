@@ -9,6 +9,7 @@ Use **pnpm** for everything — the project deploys with pnpm and has a `pnpm-lo
 ```bash
 pnpm dev              # Start dev server at http://localhost:3000
 pnpm build            # Production build (type-check + lint + Next.js compiler)
+pnpm start            # Start the production server (after pnpm build)
 pnpm lint             # ESLint only
 npx tsc --noEmit      # Type-check without building
 pnpm db:push          # Push schema changes — sources .env.local automatically
@@ -20,9 +21,17 @@ pnpm db:generate      # Regenerate Prisma client after schema changes
 **Docker:**
 
 ```bash
-docker compose up --build                        # App only (uses cloud DB from .env.local)
-docker compose --profile local-db up --build     # App + local Postgres
-docker compose down -v                           # Stop and delete the postgres_data volume
+# Production (app only, connects to cloud DB from .env.local)
+docker compose up --build
+
+# Dev with hot-reload (bind-mounts src/, builds to deps stage only)
+docker compose -f docker-compose.dev.yml up --build
+
+# Dev + local Postgres (profile-gated)
+docker compose -f docker-compose.dev.yml --profile local-db up --build
+
+# Wipe local Postgres volume
+docker compose -f docker-compose.dev.yml down -v
 ```
 
 There are no tests in this project.
@@ -167,6 +176,8 @@ Five Prisma models in `prisma/schema.prisma`:
 
 `prisma.config.ts` must NOT import `dotenv` — it runs during `prisma generate` on Vercel where dotenv is not available.
 
+**Prisma client location:** `pnpm db:generate` outputs the client to `src/generated/prisma/` (non-standard). Import from `@/generated/prisma` not from `@prisma/client`.
+
 ### Sidebar / Layout
 
 The persistent sidebar lives in `app/layout.tsx` — this keeps it mounted across client-side navigations. `SidebarContext.tsx` provides `{ isOpen, toggle, close }`. `MobileMenuButton.tsx` renders the hamburger/X inside each page's sticky header.
@@ -185,6 +196,10 @@ Tailwind v4 with PostCSS. No `tailwind.config.js` — all configuration is CSS-f
 - `lib/orders.ts` — `FlatOrder`, `FlatLineItem`, `FlatCustomer`, `RevenueMetrics`, `ProductRevenueEntry`, `DailyRevenue`, `RepeatCustomerRate`
 - `lib/shopify/queries.ts` — GraphQL query strings (`SHOP_QUERY`, `PRODUCTS_QUERY`, `ORDERS_QUERY`, `ORDERS_DETAIL_QUERY`). The detail query fetches line items needed for the orders dashboard; the basic query is used for the overview.
 - `lib/shopify/utils.ts` — `extractNumericId(gid: string): string` strips the Shopify GID prefix (e.g. `"gid://shopify/Product/12345"` → `"12345"`).
+
+### Authentication
+
+`next-auth@5.0.0-beta.31` (Auth.js v5) is installed but not yet wired up — authentication is being added in the `feat/week4-day1-authentication` branch. There is currently no login system; the dashboard is fully public.
 
 ### Docker Notes
 
