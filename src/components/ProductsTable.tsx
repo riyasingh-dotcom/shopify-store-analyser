@@ -8,7 +8,7 @@ import type { ProductAuditResult } from '@/lib/audit/productAudit';
 import { extractNumericId } from '@/lib/shopify/utils';
 import ScoreBadge from '@/components/audit/ScoreBadge';
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 8;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 

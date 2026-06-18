@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Clock, Sparkles, TrendingUp, Calendar, Hash } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
-import MobileMenuButton from '@/components/MobileMenuButton';
 import CopyButton from '@/components/CopyButton';
 
 export const dynamic = 'force-dynamic';
@@ -159,9 +158,8 @@ export default async function ProductHistoryPage({ params }: Props) {
   return (
     <>
       {/* Sticky header */}
-      <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur-sm sm:px-6">
+      <header className="sticky top-16 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur-sm sm:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <MobileMenuButton />
           <Link
             href={`/products/${id}`}
             className="flex items-center gap-1 text-xs font-medium text-gray-400 transition-colors hover:text-indigo-600"
@@ -180,7 +178,7 @@ export default async function ProductHistoryPage({ params }: Props) {
         </div>
       </header>
 
-      <main className="flex-1 p-4 sm:p-6">
+      <main className="flex-1 p-4 sm:p-6 lg:px-8">
         <div className="mx-auto max-w-3xl space-y-6">
           {/* Page heading */}
           <div>

@@ -1,5 +1,4 @@
 import { prisma } from '@/lib/prisma';
-import MobileMenuButton from '@/components/MobileMenuButton';
 import HistoryClient from './HistoryClient';
 import type { AnalysisCardData, StatsData } from './HistoryClient';
 import type { Insight } from '@/types/analysis';
@@ -144,21 +143,16 @@ export default async function HistoryPage() {
 
   return (
     <>
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-white/90 px-4 backdrop-blur-sm sm:px-6">
-        <div className="flex items-center gap-3">
-          <MobileMenuButton />
-          <div>
-            <h1 className="text-base font-bold text-gray-900">Analysis History</h1>
-            <p className="hidden text-xs text-gray-400 sm:block">
-              {rows.length > 0 ? `${rows.length} saved analyses` : 'No analyses yet'}
-            </p>
-          </div>
-        </div>
-      </header>
+      <div className="px-6 pt-8 pb-0 lg:px-8">
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Analysis History</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          {rows.length > 0 ? `${rows.length} saved analyses` : 'No analyses yet'}
+        </p>
+      </div>
 
       <HistoryClient stats={stats} cards={cards} />
 
-      <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6">
+      <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6 lg:px-8">
         Shopify Store Analyser · Showing up to 20 most recent analyses
       </footer>
     </>

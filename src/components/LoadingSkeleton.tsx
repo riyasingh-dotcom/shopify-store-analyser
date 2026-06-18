@@ -1,4 +1,3 @@
-// Animated skeleton matching the new sidebar + content layout
 function Pulse({ className }: { className: string }) {
   return <div className={`animate-pulse rounded bg-gray-200 ${className}`} />;
 }
@@ -43,30 +42,34 @@ function TableSkeleton({ rows = 5 }: { rows?: number }) {
   );
 }
 
-function SidebarSkeleton() {
+function TopNavSkeleton() {
   return (
-    <div className="fixed inset-y-0 left-0 w-64 bg-gray-950 border-r border-gray-800 flex flex-col p-4 gap-3">
-      <div className="flex items-center gap-3 px-1 py-3 border-b border-gray-800 mb-2">
-        <div className="h-8 w-8 rounded-lg bg-gray-800 animate-pulse" />
-        <div className="space-y-1.5">
-          <div className="h-3 w-24 rounded bg-gray-800 animate-pulse" />
-          <div className="h-2.5 w-16 rounded bg-gray-800 animate-pulse" />
-        </div>
+    <div className="flex h-14 items-center gap-4 border-b border-gray-200 bg-white px-4 sm:px-6">
+      <div className="flex items-center gap-2">
+        <div className="h-7 w-7 rounded-lg bg-gray-200 animate-pulse" />
+        <div className="h-4 w-28 rounded bg-gray-200 animate-pulse" />
       </div>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="h-9 rounded-lg bg-gray-800 animate-pulse" />
-      ))}
+      <div className="hidden h-px w-px sm:block" />
+      <div className="hidden items-center gap-1 md:flex">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-7 w-16 rounded-md bg-gray-100 animate-pulse" />
+        ))}
+      </div>
+      <div className="flex-1" />
+      <div className="h-6 w-12 rounded-full bg-gray-100 animate-pulse" />
+      <div className="hidden h-7 w-7 rounded-full bg-gray-200 animate-pulse md:block" />
+      <div className="hidden h-7 w-16 rounded-md bg-gray-100 animate-pulse md:block" />
     </div>
   );
 }
 
 export default function LoadingSkeleton() {
   return (
-    <div className="flex min-h-screen bg-gray-100">
-      <SidebarSkeleton />
-      <div className="flex flex-1 flex-col lg:ml-64">
-        {/* top bar */}
-        <div className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6">
+    <div className="flex min-h-screen flex-col bg-gray-100">
+      <TopNavSkeleton />
+      <div className="flex flex-1 flex-col">
+        {/* page sub-header */}
+        <div className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-6">
           <Pulse className="h-5 w-32" />
           <Pulse className="h-7 w-24 rounded-full" />
         </div>

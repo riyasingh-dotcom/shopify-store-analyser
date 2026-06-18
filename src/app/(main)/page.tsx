@@ -1,5 +1,4 @@
 import { getStoreDataCached } from '@/lib/shopify/cached';
-import MobileMenuButton from '@/components/MobileMenuButton';
 import StoreMetrics from '@/components/StoreMetrics';
 import StreamingAnalysis from '@/components/StreamingAnalysis';
 import type { StoreData } from '@/types/shopify';
@@ -44,30 +43,6 @@ function MockBanner() {
   );
 }
 
-// ── top bar ───────────────────────────────────────────────────────────────────
-
-function TopBar({ data }: { data: StoreData }) {
-  return (
-    <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-white/90 px-4 backdrop-blur-sm sm:px-6">
-      <div className="flex items-center gap-3">
-        <MobileMenuButton />
-        <div>
-          <h1 className="text-base font-bold text-gray-900">Overview</h1>
-          <p className="hidden text-xs text-gray-400 sm:block">{data.shop.myshopifyDomain}</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 sm:gap-3">
-        <span className="hidden text-xs text-gray-400 sm:block">{data.shop.currencyCode}</span>
-        <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium sm:px-3 ${data.isMockData ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-700'}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${data.isMockData ? 'bg-amber-400' : 'bg-emerald-500'}`} />
-          {data.isMockData ? 'Demo' : 'Live'}
-          <span className="hidden sm:inline">{data.isMockData ? ' mode' : ' data'}</span>
-        </div>
-      </div>
-    </header>
-  );
-}
-
 // ── page ──────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
@@ -82,15 +57,17 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <TopBar data={data} />
-
-      <main className="flex-1 space-y-4 p-4 sm:space-y-6 sm:p-6">
+      <main className="flex-1 space-y-6 p-4 sm:p-6 lg:px-8">
         {data.isMockData && <MockBanner />}
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Overview</h1>
+          <p className="mt-0.5 text-sm text-gray-500">{data.shop.myshopifyDomain || data.shop.name}</p>
+        </div>
         <StoreMetrics metrics={data.metrics} orders={data.orders} />
         <StreamingAnalysis />
       </main>
 
-      <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6">
+      <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6 lg:px-8">
         Shopify Store Analyser · {data.isMockData ? 'Mock data' : `Live · ${data.shop.name}`}
       </footer>
     </>
