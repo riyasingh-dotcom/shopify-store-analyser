@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { FlatOrder } from '@/lib/orders';
+import type { FlatOrder } from '@/lib/analysis/orders/orders';
 import type {
   CategoryStatus,
   AnalysisCategory,

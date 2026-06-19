@@ -49,6 +49,9 @@ Copy `.env.example` to `.env.local`. The app enters **mock mode** automatically 
 | `GROQ_API_KEY` | Yes | Required for store analysis, Product Optimiser, and Orders Analysis |
 | `DATABASE_URL` | Yes | Use the pooled connection string (Neon/Supabase) |
 | `DIRECT_URL` | Yes | Direct (non-pooled) connection — used by Prisma migrations |
+| `AUTH_SECRET` | Yes | Signs/encrypts Auth.js JWT sessions — pass explicitly in `NextAuth({ secret })` |
+| `ADMIN_EMAIL` | Yes | Single admin credential checked in `src/auth.ts` |
+| `ADMIN_PASSWORD` | Yes | Single admin credential checked in `src/auth.ts` |
 
 † Both must be set together for live mode; omit either to use mock data.
 ‡ Only needed for the initial access-token exchange.
@@ -63,6 +66,7 @@ All application code lives under `src/`. The TypeScript path alias `@/*` maps to
 
 | Route | Purpose |
 |---|---|
+| `/login` | Auth.js credentials login — public, redirects to `/` if already signed in |
 | `/` | Overview dashboard — KPI cards + `StreamingAnalysis` |
 | `/products` | Products table with audit scores + `BulkOptimise` controller |
 | `/products/[id]` | Product detail — audit breakdown + `ProductSuggestions` SSE stream |
@@ -71,17 +75,31 @@ All application code lives under `src/`. The TypeScript path alias `@/*` maps to
 | `/history` | Store analysis history (20 most recent) |
 | `/history/[id]` | Individual analysis detail |
 
+The app uses two route groups:
+- `(auth)` — unauthenticated routes (`/login`)
+- `(dashboard)` — all main routes; `(dashboard)/layout.tsx` renders `TopNav` and passes the user session
+
 ### Next.js Version
 
 This project runs **Next.js 16.2.7** with React 19. Before writing any Next.js code, read the relevant guide in `node_modules/next/dist/docs/` and heed deprecation notices.
+
+### Authentication
+
+`next-auth@5.0.0-beta.31` (Auth.js v5) with credentials strategy. All routes except `/login` and `/api/auth/*` are protected by `src/middleware.ts`.
+
+- **`src/auth.ts`** — `NextAuth` config: credentials provider checks `ADMIN_EMAIL` / `ADMIN_PASSWORD`, JWT strategy, `secret` passed explicitly to avoid env-detection issues on Vercel.
+- **`src/middleware.ts`** — Auth guard: unauthenticated requests are redirected to `/login?callbackUrl=...`; authenticated users visiting `/login` are sent to `/`.
+- **`src/app/actions/auth.ts`** — Server actions: `signInAction` (useActionState-compatible, re-throws NEXT_REDIRECT on success), `signOutAction`.
+- **`src/app/layout.tsx`** — Root layout fetches session and passes it to `SessionProviderWrapper` so client components can call `useSession()`.
 
 ### Data Flow — Store Data
 
 ```
 app/layout.tsx  (async RSC)
-  └── getStoreDataCached()   ← React.cache() wrapper — one Shopify call per navigation
-        └── services/shopify.ts
-              └── lib/shopify/api.ts → lib/shopify/client.ts → Shopify Admin GraphQL API (v2025-01)
+  └── (dashboard)/layout.tsx
+        └── getStoreDataCached()   ← React.cache() wrapper — one Shopify call per navigation
+              └── lib/shopify/service.ts
+                    └── lib/shopify/api.ts → lib/shopify/client.ts → Shopify Admin GraphQL API (v2025-01)
 
 app/**/page.tsx  (also calls getStoreDataCached — gets the memoised result, no extra fetch)
 ```
@@ -94,13 +112,13 @@ Every page exports `dynamic = 'force-dynamic'` to opt out of static rendering.
 
 **`lib/shopify/cached.ts`** — `getStoreDataCached = cache(getStoreData)`. Always import this instead of `getStoreData` directly in server components.
 
-**`services/shopify.ts`** — Service layer assembler. `getStoreData()` fans out via `Promise.all` to fetch shop, products, and orders, then computes metrics. `getOrdersData()` is used only by the `/orders` page — calls `getOrdersGraphQL()` (one page, 50 orders, no pagination loop) and returns `{ orders: FlatOrder[]; metrics: RevenueMetrics } | { error: string }`.
+**`lib/shopify/service.ts`** — Service layer assembler. `getStoreData()` fans out via `Promise.all` to fetch shop, products, and orders, then computes metrics. `getOrdersData()` is used only by the `/orders` page — calls `getOrdersGraphQL()` (one page, 50 orders, no pagination loop) and returns `{ orders: FlatOrder[]; metrics: RevenueMetrics } | { error: string }`.
 
-**`lib/analytics.ts`** — Pure functions that compute `StoreMetrics` from raw products/orders arrays.
+**`lib/analysis/store/analytics.ts`** — Pure functions that compute `StoreMetrics` from raw products/orders arrays.
 
-**`lib/orders.ts`** — Pure order-processing utilities. `FlatOrder.createdAt` and `updatedAt` are ISO strings (not `Date` objects) — use `new Date(o.createdAt)` when you need a `Date`. Key exports: `flattenOrders()`, `calculateRevenueMetrics()`, `getRevenueByDay()`, `getOrdersByStatus()`, `getOrdersByFulfilmentStatus()`, `getTopProductsByRevenue()`, `getRepeatCustomerRate()`.
+**`lib/analysis/orders/orders.ts`** — Pure order-processing utilities. `FlatOrder.createdAt` and `updatedAt` are ISO strings (not `Date` objects) — use `new Date(o.createdAt)` when you need a `Date`. Key exports: `flattenOrders()`, `calculateRevenueMetrics()`, `getRevenueByDay()`, `getOrdersByStatus()`, `getOrdersByFulfilmentStatus()`, `getTopProductsByRevenue()`, `getRepeatCustomerRate()`.
 
-**`lib/ordersSummary.ts`** — `buildOrdersSummary(orders: FlatOrder[]): string` builds the plain-text LLM prompt for the orders AI route. Sections: time period, revenue, financial status, fulfilment status, top 5 products, customer retention, notable flags (unfulfilled >20%, discount rate >25%, single product >50% of revenue).
+**`lib/analysis/orders/ordersSummary.ts`** — `buildOrdersSummary(orders: FlatOrder[]): string` builds the plain-text LLM prompt for the orders AI route. Sections: time period, revenue, financial status, fulfilment status, top 5 products, customer retention, notable flags (unfulfilled >20%, discount rate >25%, single product >50% of revenue).
 
 ### AI Entry Points
 
@@ -133,15 +151,15 @@ All three Groq routes use the OpenAI-compatible SDK pointed at `https://api.groq
 3. Calls `buildOrdersSummary(orders)` to build the LLM prompt, then streams a **Server-Sent Events** response with raw tokens and a `[DONE]` sentinel.
 4. Response JSON schema: `{ overallHealthScore (1-10), categories [4 items], topPriority, positives (2-3) }`. Categories: `Revenue Health | Fulfilment Performance | Product Mix | Customer Quality`.
 5. `max_tokens: 2048` — required because 4 verbose categories easily exceed 1024.
-6. After `[DONE]`, persists to `OrdersAnalysis` via `persistOrdersAnalysis()` (non-fatal). Also stores a `metricsSnapshot` (built by `buildOrdersAnalysisSnapshot()` in `lib/ordersSummary.ts`) capturing the exact metrics sent to the LLM.
+6. After `[DONE]`, persists to `OrdersAnalysis` via `persistOrdersAnalysis()` (non-fatal). Also stores a `metricsSnapshot` (built by `buildOrdersAnalysisSnapshot()` in `lib/analysis/orders/ordersSummary.ts`) capturing the exact metrics sent to the LLM.
 
-**`lib/ordersAnalysisDb.ts`** — DB helpers: `persistOrdersAnalysis()`, `getLatestOrdersAnalysis()`, `getOrdersAnalysisHistory(limit)`. All three apply `normaliseStatus()` on read because Groq occasionally returns synonyms (`"adequate"`, `"strong"`, `"needs work"`) that aren't in the `CategoryStatus` union — normalization happens at the DB layer, not the client.
+**`lib/analysis/orders/ordersAnalysisDb.ts`** — DB helpers: `persistOrdersAnalysis()`, `getLatestOrdersAnalysis()`, `getOrdersAnalysisHistory(limit)`. All three apply `normaliseStatus()` on read because Groq occasionally returns synonyms (`"adequate"`, `"strong"`, `"needs work"`) that aren't in the `CategoryStatus` union — normalization happens at the DB layer, not the client.
 
 The client component `components/orders/OrdersAnalysis.tsx` accumulates SSE tokens until `[DONE]`, then parses with `parseOrdersAnalysis()`. That parser normalises LLM status deviations and coerces numeric `metric` values to strings. The component uses a module-level `analysisCache` so results survive client-side navigation; analysis is **not** triggered on mount — users click "Generate Analysis" manually. A **History dropdown** in the result header lets users switch between the 10 most recent analyses (eagerly loaded at page render via `getOrdersAnalysisHistory(10)`) without extra API calls.
 
 ### Product Audit System
 
-**`lib/audit/productAudit.ts`** — pure, synchronous function `auditProduct(product)`. Runs 17 checks across 5 categories:
+**`lib/analysis/products/productAudit.ts`** — pure, synchronous function `auditProduct(product)`. Runs 17 checks across 5 categories:
 
 | Category | Max | Key checks |
 |---|---|---|
@@ -178,9 +196,11 @@ Five Prisma models in `prisma/schema.prisma`:
 
 **Prisma client location:** `pnpm db:generate` outputs the client to `src/generated/prisma/` (non-standard). Import from `@/generated/prisma` not from `@prisma/client`.
 
-### Sidebar / Layout
+### Layout
 
-The persistent sidebar lives in `app/layout.tsx` — this keeps it mounted across client-side navigations. `SidebarContext.tsx` provides `{ isOpen, toggle, close }`. `MobileMenuButton.tsx` renders the hamburger/X inside each page's sticky header.
+- **`app/layout.tsx`** — Root layout. Fetches session and wraps children in `SessionProviderWrapper` so client components can call `useSession()`.
+- **`app/(dashboard)/layout.tsx`** — Dashboard shell. Fetches store data + session, renders `TopNav` with both. All dashboard pages inherit this layout.
+- **`app/(auth)/login/page.tsx`** — Login page. Uses `LoginForm` client component with `useActionState` + `signInAction`.
 
 ### Styling
 
@@ -188,18 +208,14 @@ Tailwind v4 with PostCSS. No `tailwind.config.js` — all configuration is CSS-f
 
 ### Type System
 
-- `types/shopify.ts` — `Product`, `Order`, `StoreData`, `StoreMetrics`, `ProductImage`, `ProductVariant`, `ProductSeo`, `GraphQLOrder`
+- `types/shopify.ts` — `Product`, `Order`, `StoreData`, `StoreMetrics`, `ShopInfo`, `ProductImage`, `ProductVariant`, `ProductSeo`, `GraphQLOrder`
 - `types/analysis.ts` — `StoreAnalysis`, `Insight`, `InsightCategory`, `InsightPriority`
 - `types/suggestions.ts` — `ProductSuggestion` (shared between the API route and `ProductSuggestions` client component — import from here, not either consumer)
 - `types/ordersAnalysis.ts` — `OrdersAnalysisResult`, `OrdersAnalysisSnapshot`, `OrdersAnalysisHistoryItem`, `AnalysisCategory`, `CategoryStatus`, `CategoryName`
-- `lib/audit/productAudit.ts` — `ProductAuditResult`, `ProductAuditCheck`, `AuditCategory`, `AuditGrade`
-- `lib/orders.ts` — `FlatOrder`, `FlatLineItem`, `FlatCustomer`, `RevenueMetrics`, `ProductRevenueEntry`, `DailyRevenue`, `RepeatCustomerRate`
+- `lib/analysis/products/productAudit.ts` — `ProductAuditResult`, `ProductAuditCheck`, `AuditCategory`, `AuditGrade`
+- `lib/analysis/orders/orders.ts` — `FlatOrder`, `FlatLineItem`, `FlatCustomer`, `RevenueMetrics`, `ProductRevenueEntry`, `DailyRevenue`, `RepeatCustomerRate`
 - `lib/shopify/queries.ts` — GraphQL query strings (`SHOP_QUERY`, `PRODUCTS_QUERY`, `ORDERS_QUERY`, `ORDERS_DETAIL_QUERY`). The detail query fetches line items needed for the orders dashboard; the basic query is used for the overview.
 - `lib/shopify/utils.ts` — `extractNumericId(gid: string): string` strips the Shopify GID prefix (e.g. `"gid://shopify/Product/12345"` → `"12345"`).
-
-### Authentication
-
-`next-auth@5.0.0-beta.31` (Auth.js v5) is installed but not yet wired up — authentication is being added in the `feat/week4-day1-authentication` branch. There is currently no login system; the dashboard is fully public.
 
 ### Docker Notes
 

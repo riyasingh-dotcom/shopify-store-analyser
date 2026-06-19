@@ -10,6 +10,11 @@ function isPublic(pathname: string): boolean {
 export default auth((req) => {
   const { nextUrl, auth: session } = req
 
+  // Authenticated user visiting /login — send them to the dashboard
+  if (nextUrl.pathname === '/login' && session) {
+    return NextResponse.redirect(new URL('/', nextUrl.origin))
+  }
+
   if (!isPublic(nextUrl.pathname) && !session) {
     const loginUrl = new URL('/login', nextUrl.origin)
     loginUrl.searchParams.set('callbackUrl', nextUrl.pathname + nextUrl.search)

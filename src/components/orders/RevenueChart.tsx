@@ -9,7 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import type { DailyRevenue } from '@/lib/orders';
+import type { DailyRevenue } from '@/lib/analysis/orders/orders';
 
 type Props = {
   data: DailyRevenue[];

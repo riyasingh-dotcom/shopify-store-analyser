@@ -128,8 +128,6 @@ shopify-store-analyser/
     │   ├── StoreMetrics.tsx                 # KPI stat cards grid
     │   ├── StoreStats.tsx                   # Store-level stats summary
     │   ├── ProductsTable.tsx                # Paginated products table (client)
-    │   ├── OrdersTable.tsx                  # Orders table (server)
-    │   ├── OrderSummary.tsx                 # Revenue + status breakdown
     │   ├── QuickWins.tsx
     │   ├── CopyButton.tsx                   # One-click copy to clipboard
     │   ├── PageShell.tsx

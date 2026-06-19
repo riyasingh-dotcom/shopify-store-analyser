@@ -1,4 +1,4 @@
-import type { ProductRevenueEntry } from '@/lib/orders';
+import type { ProductRevenueEntry } from '@/lib/analysis/orders/orders';
 
 export type { ProductRevenueEntry };
 

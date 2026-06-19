@@ -20,7 +20,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
 
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full bg-gray-100">
+      <body className="min-h-full bg-gray-100 ">
         <SessionProviderWrapper session={session}>
           {children}
         </SessionProviderWrapper>
