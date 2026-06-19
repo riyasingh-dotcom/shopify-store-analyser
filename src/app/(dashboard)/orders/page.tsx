@@ -1,5 +1,4 @@
-import { getStoreDataCached } from '@/lib/shopify/cached';
-import { getOrdersData } from '@/lib/shopify/service';
+import { getStoreDataCached, getOrdersDataCached } from '@/lib/shopify/cached';
 import {
   getRevenueByDay,
   getOrdersByStatus,
@@ -53,7 +52,7 @@ function ErrorState({ message }: { message: string }) {
 export default async function OrdersPage() {
   const [{ shop, isMockData }, ordersResult, latestAnalysis, history] = await Promise.all([
     getStoreDataCached(),
-    getOrdersData(),
+    getOrdersDataCached(),
     getLatestOrdersAnalysis().catch(() => null),
     getOrdersAnalysisHistory(10).catch(() => []),
   ]);

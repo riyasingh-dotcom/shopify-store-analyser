@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { getStoreData } from '@/lib/shopify/service';
 import { prisma } from '@/lib/prisma';
-import { groqRatelimit, getRateLimitIdentifier } from '@/lib/ratelimit';
+import { getGroqRatelimit, getRateLimitIdentifier } from '@/lib/ratelimit';
 import type { StoreData } from '@/types/shopify';
 
 export const dynamic = 'force-dynamic';
@@ -172,7 +172,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { success, limit, remaining, reset } = await groqRatelimit.limit(
+  const { success, limit, remaining, reset } = await getGroqRatelimit().limit(
     getRateLimitIdentifier(request),
   );
   if (!success) {

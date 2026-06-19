@@ -8,7 +8,7 @@ import { auditProduct, type AuditCategory } from '@/lib/analysis/products/produc
 import { prisma } from '@/lib/prisma';
 import type { ProductSuggestion } from '@/types/suggestions';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
-import { groqRatelimit, getRateLimitIdentifier } from '@/lib/ratelimit';
+import { getGroqRatelimit, getRateLimitIdentifier } from '@/lib/ratelimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -431,7 +431,7 @@ function sanitiseRawJson(raw: string): string {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request): Promise<Response> {
-  const { success } = await groqRatelimit.limit(getRateLimitIdentifier(request));
+  const { success } = await getGroqRatelimit().limit(getRateLimitIdentifier(request));
   if (!success) {
     return Response.json(
       { error: 'Too many requests. Please wait a minute before trying again.' },
