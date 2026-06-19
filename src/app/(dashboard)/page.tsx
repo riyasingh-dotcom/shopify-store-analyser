@@ -4,7 +4,7 @@ import StreamingAnalysis from '@/components/dashboard/StreamingAnalysis';
 import type { StoreData } from '@/types/shopify';
 
 export const dynamic = 'force-dynamic';
-
+const age: number = "abc";
 // ── error view ────────────────────────────────────────────────────────────────
 
 function ErrorView({ message }: { message: string }) {
