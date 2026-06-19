@@ -87,8 +87,6 @@ const SuggestBodySchema = z.object({
   auditLogId: z.string().nullable().optional(),
 });
 
-type SuggestRequestBody = z.infer<typeof SuggestBodySchema>;
-
 // ---------------------------------------------------------------------------
 // Type guards (retained for Groq error handling and response validation)
 // ---------------------------------------------------------------------------

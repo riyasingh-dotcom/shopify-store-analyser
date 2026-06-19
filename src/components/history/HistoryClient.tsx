@@ -149,9 +149,8 @@ function StatCard({ icon, label, value, sub, accent = 'bg-indigo-50 text-indigo-
 interface DeltaRowProps {
   delta: DeltaData;
   currency?: string;
-  compact?: boolean;
 }
-function DeltaRow({ delta, currency = 'USD', compact = false }: DeltaRowProps) {
+function DeltaRow({ delta, currency = 'USD' }: DeltaRowProps) {
   const raw: { label: string; value: number | null; fmt: (v: number) => string }[] = [
     { label: 'Score',    value: delta.score,    fmt: fmtDelta },
     { label: 'Revenue',  value: delta.revenue,  fmt: (v) => fmtCurrency(v, currency) },
@@ -276,7 +275,7 @@ function GridCard({ card }: { card: AnalysisCardData }) {
 
       {/* Delta */}
       {card.delta && (
-        <DeltaRow delta={card.delta} currency={card.snapshot?.currency} compact />
+        <DeltaRow delta={card.delta} currency={card.snapshot?.currency} />
       )}
     </Link>
   );

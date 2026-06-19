@@ -420,10 +420,12 @@ function AnalysisResult({
   const overallColors = scoreColors(result.overallHealthScore);
   const label = scoreLabel(result.overallHealthScore);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [prevExpandTrigger, setPrevExpandTrigger] = useState(expandTrigger);
 
-  useEffect(() => {
+  if (expandTrigger !== prevExpandTrigger) {
+    setPrevExpandTrigger(expandTrigger);
     if (expandTrigger > 0) setIsExpanded(true);
-  }, [expandTrigger]);
+  }
 
   return (
     <div className="space-y-5">

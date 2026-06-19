@@ -4,7 +4,6 @@ import {
   getRevenueByDay,
   getOrdersByStatus,
   getOrdersByFulfilmentStatus,
-  getRepeatCustomerRate,
   getTopProductsByRevenue,
 } from '@/lib/analysis/orders/orders';
 import { getLatestOrdersAnalysis, getOrdersAnalysisHistory } from '@/lib/analysis/orders/ordersAnalysisDb';

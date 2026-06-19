@@ -1,5 +1,4 @@
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
 import Image from 'next/image';
 import { AlertCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { getStoreDataCached } from '@/lib/shopify/cached';
@@ -26,13 +25,6 @@ const GRADE_STROKE: Record<AuditGrade, string> = {
   F: '#ef4444',
 };
 
-const GRADE_PILL: Record<AuditGrade, string> = {
-  A: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  B: 'bg-blue-50 text-blue-700 ring-blue-200',
-  C: 'bg-yellow-50 text-yellow-700 ring-yellow-200',
-  D: 'bg-orange-50 text-orange-700 ring-orange-200',
-  F: 'bg-red-50 text-red-700 ring-red-200',
-};
 
 function ScoreRing({ score, grade }: { score: number; grade: AuditGrade }) {
   const offset = RING_CIRC * (1 - score / 100);
