@@ -4,6 +4,7 @@ import type { Stream } from 'openai/streaming';
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions';
 import { buildOrdersSummary, buildOrdersAnalysisSnapshot } from '@/lib/analysis/orders/ordersSummary';
 import { persistOrdersAnalysis } from '@/lib/analysis/orders/ordersAnalysisDb';
+import { groqRatelimit, getRateLimitIdentifier } from '@/lib/ratelimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,6 +142,14 @@ async function createGroqStream(
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request): Promise<Response> {
+  const { success } = await groqRatelimit.limit(getRateLimitIdentifier(request));
+  if (!success) {
+    return Response.json(
+      { error: 'Too many requests. Please wait a minute before trying again.' },
+      { status: 429 },
+    );
+  }
+
   const origin = request.headers.get('origin');
   const host = request.headers.get('host') ?? '';
   // origin is null for same-origin requests from non-browser clients; the

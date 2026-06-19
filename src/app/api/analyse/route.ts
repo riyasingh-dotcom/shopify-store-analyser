@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { getStoreData } from '@/lib/shopify/service';
 import { prisma } from '@/lib/prisma';
+import { groqRatelimit, getRateLimitIdentifier } from '@/lib/ratelimit';
 import type { StoreData } from '@/types/shopify';
 
 export const dynamic = 'force-dynamic';
@@ -169,6 +170,23 @@ export async function POST(request: Request) {
   // callers cannot include X-Requested-With without explicit server permission.
   if (request.headers.get('x-requested-with') !== 'XMLHttpRequest') {
     return Response.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  const { success, limit, remaining, reset } = await groqRatelimit.limit(
+    getRateLimitIdentifier(request),
+  );
+  if (!success) {
+    return Response.json(
+      { error: 'Too many requests' },
+      {
+        status: 429,
+        headers: {
+          'X-RateLimit-Limit': String(limit),
+          'X-RateLimit-Remaining': String(remaining),
+          'X-RateLimit-Reset': String(reset),
+        },
+      },
+    );
   }
 
   const apiKey = process.env.GROQ_API_KEY;
