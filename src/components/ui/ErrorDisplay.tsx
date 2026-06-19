@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 type ErrorDisplayProps = {
   error: Error & { digest?: string };
@@ -33,12 +34,12 @@ export default function ErrorDisplay({ error, reset }: ErrorDisplayProps) {
           >
             Try Again
           </button>
-          <a
+          <Link
             href="/"
             className="rounded-lg border border-gray-200 bg-white px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             Go to Dashboard
-          </a>
+          </Link>
         </div>
       </div>
     </div>
