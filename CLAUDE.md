@@ -222,3 +222,29 @@ Tailwind v4 with PostCSS. No `tailwind.config.js` — all configuration is CSS-f
 - `docker-entrypoint.sh` runs `prisma db push --accept-data-loss` only when `DATABASE_URL` contains `@db:` or `@localhost:` (local Postgres). Cloud databases (Neon, Supabase) are detected by URL and skipped — apply migrations manually via `pnpm db:push`.
 - Inside containers, Postgres is reachable via the service name `db`, not `localhost`.
 - `.env.local` is never baked into the image — injected at runtime via `env_file`.
+
+### GitHub Actions Workflows
+
+Two workflows live in `.github/workflows/`:
+
+| File | Trigger | Job | Purpose |
+|---|---|---|---|
+| `ci.yml` | `push` + `pull_request` → `main` | `quality-check` | Type-check (`pnpm tsc --noEmit`) then full production build (`pnpm build`) |
+| `lint.yml` | `pull_request` → `main` | `lint` | ESLint check (`pnpm lint`) — runs independently so lint and build failures are reported separately |
+
+**Both workflows share the same setup sequence:** checkout → Node 22 → corepack pnpm → cache pnpm store (keyed on `pnpm-lock.yaml` hash) → `pnpm install --frozen-lockfile`.
+
+**`ci.yml` also runs `pnpm prisma generate`** before the type-check so the generated Prisma types in `src/generated/prisma/` are available to the TypeScript compiler.
+
+**Secrets required by `ci.yml` build step** (configure in repo Settings → Secrets and variables → Actions):
+
+| Secret | Why needed at build time |
+|---|---|
+| `AUTH_SECRET` | NextAuth reads during config initialisation |
+| `NEXTAUTH_URL` | NextAuth uses to construct redirect URLs |
+| `DATABASE_URL` | Prisma client validates the URL on import |
+| `GROQ_API_KEY` | Referenced in API route modules |
+| `SHOPIFY_STORE_DOMAIN` | Controls mock vs live mode detection |
+| `SHOPIFY_ADMIN_ACCESS_TOKEN` | Paired with domain for live mode |
+
+Runtime-only secrets (`DIRECT_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`) are **not** needed in CI — they are only accessed when real HTTP requests are handled.
