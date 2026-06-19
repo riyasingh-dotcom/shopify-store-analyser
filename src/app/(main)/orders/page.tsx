@@ -8,11 +8,9 @@ import {
   getTopProductsByRevenue,
 } from '@/lib/orders';
 import { getLatestOrdersAnalysis, getOrdersAnalysisHistory } from '@/lib/ordersAnalysisDb';
-import MobileMenuButton from '@/components/MobileMenuButton';
 import RevenueMetrics from '@/components/orders/RevenueMetrics';
 import RevenueChart from '@/components/orders/RevenueChart';
 import OrderStatusBreakdown from '@/components/orders/OrderStatusBreakdown';
-import CustomerInsight from '@/components/orders/CustomerInsight';
 import TopProductsTable from '@/components/orders/TopProductsTable';
 import OrdersAnalysis from '@/components/orders/OrdersAnalysis';
 import type { FlatOrder } from '@/lib/orders';
@@ -71,31 +69,20 @@ export default async function OrdersPage() {
   const revenueByDay = getRevenueByDay(orders);
   const ordersByStatus = getOrdersByStatus(orders);
   const ordersByFulfilment = getOrdersByFulfilmentStatus(orders);
-  const repeatRate = getRepeatCustomerRate(orders);
   const topProducts = getTopProductsByRevenue(orders, 50);
 
   return (
     <>
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-white/90 px-4 backdrop-blur-sm sm:px-6">
-        <div className="flex items-center gap-3">
-          <MobileMenuButton />
-          <div>
-            <h1 className="text-base font-bold text-gray-900">Orders Intelligence</h1>
-            <p className="hidden text-xs text-gray-400 sm:block">{dateRange}</p>
-          </div>
+      <main className="flex-1 space-y-8 p-6 lg:px-8 lg:py-8">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Orders Intelligence</h1>
+          <p className="mt-1 text-sm text-gray-500">{dateRange}</p>
         </div>
-        <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium sm:px-3 ${isMockData ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-700'}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${isMockData ? 'bg-amber-400' : 'bg-emerald-500'}`} />
-          {isMockData ? 'Demo' : 'Live'}
-          <span className="hidden sm:inline">{isMockData ? ' mode' : ' data'}</span>
-        </div>
-      </header>
 
-      <main className="flex-1 space-y-6 p-4 sm:p-6">
-        {/* 2 — Revenue Metrics */}
+        {/* 1 — KPI Row */}
         <RevenueMetrics metrics={metrics} />
 
-        {/* 3 — AI Orders Analysis (on-demand) */}
+        {/* 2+3 — AI Analysis hero + Business Intelligence categories */}
         <OrdersAnalysis
           orders={orders}
           storeDomain={storeDomain}
@@ -103,23 +90,27 @@ export default async function OrdersPage() {
           history={history}
         />
 
-        {/* 4 — Revenue Over Time (full width) */}
-        <RevenueChart data={revenueByDay} currencyCode={metrics.currencyCode} />
-
-        {/* 4 — Order Status (left) + Customer Insight (right) */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* 4 — Operations: Payment + Fulfillment side by side */}
+        <section>
+          <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-gray-400">Operations</p>
           <OrderStatusBreakdown
             byFinancialStatus={ordersByStatus}
             byFulfilmentStatus={ordersByFulfilment}
           />
-          <CustomerInsight rate={repeatRate} />
-        </div>
+        </section>
 
-        {/* 5 — Top Products (full width) */}
+        {/* 5 — Revenue Trend */}
+        <section>
+          <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-gray-400">Revenue Trend</p>
+          <RevenueChart data={revenueByDay} currencyCode={metrics.currencyCode} />
+        </section>
+
+
+        {/* 7 — Top Products */}
         <TopProductsTable products={topProducts} currencyCode={metrics.currencyCode} />
       </main>
 
-      <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6">
+      <footer className="border-t border-gray-200 bg-white px-6 py-3 text-xs text-gray-400 lg:px-8">
         Shopify Store Analyser · {isMockData ? 'Mock data' : `Live · ${shop.name}`}
       </footer>
     </>

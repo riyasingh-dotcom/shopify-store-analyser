@@ -8,7 +8,6 @@ import { prisma } from '@/lib/prisma';
 import type { ProductAuditCheck, AuditGrade } from '@/lib/audit/productAudit';
 import { extractNumericId } from '@/lib/shopify/utils';
 import type { ProductStatus } from '@/types/shopify';
-import MobileMenuButton from '@/components/MobileMenuButton';
 import AuditBreakdown from '@/components/audit/AuditBreakdown';
 import ProductSuggestions from '@/components/audit/ProductSuggestions';
 
@@ -304,9 +303,8 @@ export default async function ProductDetailPage({ params }: Props) {
   return (
     <>
       {/* ── Sticky header ─────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur-sm sm:px-6">
+      <header className="sticky top-16 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur-sm sm:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <MobileMenuButton />
           <Link
             href="/products"
             className="flex items-center gap-1 text-xs font-medium text-gray-400 transition-colors hover:text-indigo-600"
@@ -351,7 +349,7 @@ export default async function ProductDetailPage({ params }: Props) {
         </div>
       </header>
 
-      <main className="flex-1 p-4 sm:p-6">
+      <main className="flex-1 p-4 sm:p-6 lg:px-8">
 
         {/* ── Hero band ─────────────────────────────────────────────────── */}
         <div className="mb-6 flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:gap-6">

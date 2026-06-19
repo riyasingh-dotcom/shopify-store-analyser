@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
-import MobileMenuButton from '@/components/MobileMenuButton';
 import type { Insight } from '@/types/analysis';
 
 export const dynamic = 'force-dynamic';
@@ -85,25 +84,22 @@ export default async function HistoryDetailPage({ params }: PageProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-white/90 px-4 backdrop-blur-sm sm:px-6">
-        <div className="flex items-center gap-3">
-          <MobileMenuButton />
+      <main className="flex-1 space-y-5 p-6 lg:px-8 lg:py-8">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-base font-bold text-gray-900">Analysis Detail</h1>
-            <p className="hidden text-xs text-gray-400 sm:block">
-              {analysis.storeDomain} · {formattedDate}
-            </p>
+            <Link
+              href="/history"
+              className="mb-1.5 inline-flex items-center gap-1 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M15 19l-7-7 7-7" />
+              </svg>
+              History
+            </Link>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Analysis Detail</h1>
+            <p className="mt-0.5 text-sm text-gray-500">{analysis.storeDomain} · {formattedDate}</p>
           </div>
         </div>
-        <Link
-          href="/history"
-          className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
-        >
-          ← History
-        </Link>
-      </header>
-
-      <main className="flex-1 space-y-5 p-4 sm:p-6">
         {/* Score + summary */}
         <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className={`h-1.5 w-full ${bg.replace('bg-', 'bg-').replace('-50', '-400')}`} />
@@ -149,7 +145,7 @@ export default async function HistoryDetailPage({ params }: PageProps) {
 
         {/* Quick wins */}
         {quickWins.length > 0 && (
-          <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <h2 className="mb-3 text-sm font-semibold text-gray-700">Quick Wins</h2>
             <ul className="space-y-2.5">
               {quickWins.map((win, i) => (
@@ -173,7 +169,7 @@ export default async function HistoryDetailPage({ params }: PageProps) {
         )}
       </main>
 
-      <footer className="border-t border-gray-200 bg-white px-4 py-3 text-xs text-gray-400 sm:px-6">
+      <footer className="border-t border-gray-200 bg-white px-6 py-3 text-xs text-gray-400 lg:px-8">
         Shopify Store Analyser · Analysis saved {formattedDate}
       </footer>
     </>
@@ -186,8 +182,8 @@ export default async function HistoryDetailPage({ params }: PageProps) {
 
 function MetaCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm text-center">
-      <p className="text-lg font-bold text-gray-900">{value}</p>
+    <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm text-center">
+      <p className="text-base font-bold text-gray-900">{value}</p>
       <p className="text-xs text-gray-400">{label}</p>
     </div>
   );
@@ -195,7 +191,7 @@ function MetaCard({ label, value }: { label: string; value: string }) {
 
 function InsightCard({ insight }: { insight: Insight }) {
   return (
-    <div className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="flex flex-col rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between gap-2">
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${categoryClass(insight.category)}`}>
           {insight.category}

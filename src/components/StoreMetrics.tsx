@@ -63,7 +63,7 @@ function StatCard({ label, value, subLabel, subValue, icon, iconBg, iconColor, a
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-500">{label}</p>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-gray-900 sm:text-4xl">{value}</p>
+          <p className="mt-2 text-2xl font-bold tracking-tight text-gray-900">{value}</p>
         </div>
         <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconBg} ${iconColor}`}>
           {icon}

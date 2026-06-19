@@ -405,6 +405,7 @@ function AnalysisResult({
   isHistoryOpen,
   onToggleHistory,
   onHistorySelect,
+  expandTrigger,
 }: {
   result: OrdersAnalysisResult;
   ageLabel: string;
@@ -414,9 +415,15 @@ function AnalysisResult({
   isHistoryOpen: boolean;
   onToggleHistory: () => void;
   onHistorySelect: (item: OrdersAnalysisHistoryItem) => void;
+  expandTrigger: number;
 }) {
   const overallColors = scoreColors(result.overallHealthScore);
   const label = scoreLabel(result.overallHealthScore);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  useEffect(() => {
+    if (expandTrigger > 0) setIsExpanded(true);
+  }, [expandTrigger]);
 
   return (
     <div className="space-y-5">
@@ -459,53 +466,87 @@ function AnalysisResult({
         </div>
       </div>
 
-      {/* Score + priority + positives */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {/* Overall health score */}
-        <div className="relative flex flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-gray-200 bg-white p-6 shadow-sm text-center">
-          <div className={`absolute inset-x-0 top-0 h-0.5 ${overallColors.bar}`} />
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Overall Health</p>
-          <div className={`text-5xl font-bold tabular-nums leading-none ${overallColors.text}`}>
-            {result.overallHealthScore}
-            <span className="ml-0.5 text-xl text-gray-300">/10</span>
+      {/* Card: score + priority + positives always visible; BI cards expandable */}
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className={`h-1 w-full ${overallColors.bar}`} />
+
+        {/* Always-visible: score row */}
+        <div className="flex items-center gap-3 px-5 pt-5 sm:gap-4">
+          <div className="flex shrink-0 items-baseline gap-0.5">
+            <span className={`text-3xl font-bold tabular-nums leading-none ${overallColors.text}`}>
+              {result.overallHealthScore}
+            </span>
+            <span className="text-sm font-normal text-gray-300">/10</span>
           </div>
-          <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset ${overallColors.badge}`}>
+          <span className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${overallColors.badge}`}>
             {label}
           </span>
+          <span className="text-xs text-gray-400">Overall Health</span>
         </div>
 
-        {/* Top priority */}
-        <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-          <div className="flex items-center gap-1.5">
-            <svg className="h-4 w-4 shrink-0 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-            </svg>
-            <p className="text-xs font-semibold text-amber-800">Top Priority This Week</p>
+        {/* Always-visible: Top Priority + What's Going Well */}
+        <div className="space-y-4 px-5 pt-4 pb-0">
+          <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-center gap-1.5">
+              <svg className="h-3.5 w-3.5 shrink-0 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+              </svg>
+              <p className="text-xs font-semibold text-amber-800">Top Priority This Week</p>
+            </div>
+            <p className="text-sm leading-relaxed text-amber-900">{result.topPriority}</p>
           </div>
-          <p className="text-sm leading-relaxed text-amber-900">{result.topPriority}</p>
+
+          <div className="flex flex-col gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-xs font-semibold text-emerald-800">What&apos;s Going Well</p>
+            <ul className="flex flex-col gap-1.5">
+              {result.positives.map((item, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-emerald-900">
+                  <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                  </svg>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
 
-        {/* Positives */}
-        <div className="flex flex-col gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
-          <p className="text-xs font-semibold text-emerald-800">What&apos;s Going Well</p>
-          <ul className="flex flex-col gap-2">
-            {result.positives.map((item, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-emerald-900">
-                <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                </svg>
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+        {/* Expand / collapse toggle — sits at the bottom of the always-visible area */}
+        <button
+          onClick={() => setIsExpanded((v) => !v)}
+          aria-expanded={isExpanded}
+          className="mt-4 flex w-full items-center justify-center gap-1.5 border-t border-gray-100 px-5 py-3 text-xs font-medium text-gray-400 transition-colors hover:bg-gray-50/70 hover:text-gray-600"
+        >
+          <span>{isExpanded ? 'Hide detailed insights' : 'Show detailed insights'}</span>
+          <svg
+            className={`h-3.5 w-3.5 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
 
-      {/* Category cards 2×2 */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {result.categories.map((category) => (
-          <CategoryCard key={category.name} category={category} />
-        ))}
+        {/* Collapsible body: Business Intelligence category cards */}
+        <div
+          className={`grid transition-all duration-300 ease-in-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+        >
+          <div className="overflow-hidden">
+            <div className="space-y-4 px-5 pb-5 pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Business Intelligence</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {result.categories.map((category) => (
+                  <CategoryCard key={category.name} category={category} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -558,6 +599,7 @@ export default function OrdersAnalysis({
   });
   const [isSwitching, setIsSwitching] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [expandTrigger, setExpandTrigger] = useState(0);
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Clear pending switch timer on unmount.
@@ -687,6 +729,7 @@ export default function OrdersAnalysis({
     setSelectedHistoryId(null);
     analysisCache = undefined;
     cachedGeneratedAt = undefined;
+    setExpandTrigger((n) => n + 1);
     void runAnalysis();
   }, [runAnalysis]);
 
@@ -714,6 +757,7 @@ export default function OrdersAnalysis({
         isHistoryOpen={isHistoryOpen}
         onToggleHistory={handleToggleHistory}
         onHistorySelect={handleHistorySelect}
+        expandTrigger={expandTrigger}
       />
     );
   }

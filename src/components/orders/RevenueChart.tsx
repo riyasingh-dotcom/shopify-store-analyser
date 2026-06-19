@@ -80,7 +80,7 @@ export default function RevenueChart({ data, currencyCode }: Props) {
         <p className="text-xs text-gray-400">Daily revenue from completed orders</p>
       </div>
 
-      <ResponsiveContainer width="100%" height={280}>
+      <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={data} margin={{ top: 4, right: 4, left: 8, bottom: 0 }}>
           <defs>
             <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
