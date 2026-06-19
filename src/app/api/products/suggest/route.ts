@@ -8,6 +8,7 @@ import { auditProduct, type AuditCategory } from '@/lib/analysis/products/produc
 import { prisma } from '@/lib/prisma';
 import type { ProductSuggestion } from '@/types/suggestions';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
+import { groqRatelimit, getRateLimitIdentifier } from '@/lib/ratelimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -430,6 +431,14 @@ function sanitiseRawJson(raw: string): string {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request): Promise<Response> {
+  const { success } = await groqRatelimit.limit(getRateLimitIdentifier(request));
+  if (!success) {
+    return Response.json(
+      { error: 'Too many requests. Please wait a minute before trying again.' },
+      { status: 429 },
+    );
+  }
+
   // CSRF guard: require X-Requested-With AND verify the Origin matches this host.
   // Origin is absent on same-origin navigations in most browsers; when present it
   // must match the Host header, blocking cross-origin fetch from attacker domains.
